@@ -265,3 +265,56 @@ class DecisionTrace(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+
+class EvaluationJob(Base):
+    """
+    Postgres-backed job queue for the async (cold-path) evaluation worker.
+
+    The gateway (hot path) enqueues one job per trace, then returns immediately.
+    Worker(s) claim jobs with `FOR UPDATE SKIP LOCKED`, so many workers can run
+    concurrently without processing the same job twice — a production-grade queue
+    on the database we already have, no Kafka/Redis/Celery required.
+
+    Status lifecycle: pending -> processing -> completed (or failed).
+    """
+
+    __tablename__ = "evaluation_jobs"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    trace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("decision_traces.id"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        index=True,
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    last_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
