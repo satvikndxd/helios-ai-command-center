@@ -1,7 +1,10 @@
-.PHONY: up seed curl-complete traces test
+.PHONY: up seed curl-complete traces worker test
 
 up:
 	docker compose up --build
+
+worker:
+	PYTHONPATH=src python -m helios.worker
 
 seed:
 	docker compose exec api python -m helios.cli create-api-key --tenant acme --app support

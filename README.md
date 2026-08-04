@@ -24,6 +24,11 @@ governance) hangs off of.
 - Cost + latency metering (free providers metered at $0.00)
 - `GET /v1/traces` and `GET /v1/traces/{id}` with tenant isolation
 - Failed AI calls are still recorded as error traces
+- **Async evaluation (Phase 1.5)** — the gateway (hot path) enqueues an
+  `EvaluationJob` and returns immediately; a background worker (cold path)
+  claims jobs from a Postgres-backed queue (`FOR UPDATE SKIP LOCKED`) and
+  writes `evaluation_scores` back onto the trace. Ships with three heuristic
+  evaluators: empty-output, latency-SLA, and refusal-detection.
 
 ## Quick start (Docker)
 
@@ -85,6 +90,36 @@ PYTHONPATH=src python -m pytest -q
 
 Runs entirely on SQLite + the mock provider — no network, no Postgres.
 
+## Async evaluation (hot path vs cold path)
+
+The gateway is latency-sensitive (a user is waiting), so it does the minimum:
+authenticate → route → call model → persist trace → **enqueue an eval job** →
+return. Evaluation is throughput-sensitive and runs out-of-band in a worker.
+
+```
+POST /v1/ai/complete ──hot path──► DecisionTrace + EvaluationJob(pending) ──► 200 OK
+                                                │
+        evaluation_jobs (Postgres queue)        │ FOR UPDATE SKIP LOCKED
+                                                ▼
+                         helios.worker ──► EvaluationPipeline ──► trace.evaluation_scores
+```
+
+Run a worker locally (against the same DB as the API):
+
+```bash
+PYTHONPATH=src python -m helios.worker      # or: make worker
+```
+
+Under Docker Compose the `worker` service starts automatically and scales:
+
+```bash
+docker compose up --build --scale worker=3   # SKIP LOCKED => no double-processing
+```
+
+`SKIP LOCKED` gives us a concurrent, at-least-once job queue on the database we
+already run — no Kafka/Redis/Celery. It's the Outbox pattern we'll later back
+with Kafka, without the infrastructure today.
+
 ## Layout
 
 ```
@@ -92,14 +127,16 @@ src/helios/
   main.py            FastAPI app + startup
   config.py          Settings (HELIOS_* env vars)
   db.py              SQLAlchemy engine/session
-  models.py          Tenant, Application, ApiKey, DecisionTrace
+  models.py          Tenant, Application, ApiKey, DecisionTrace, EvaluationJob
   schemas.py         Request/response/trace Pydantic models
   security.py        API-key auth dependency
   normalization.py   Request -> internal schema
   cost.py            Token-usage -> USD (free tiers = $0)
   cli.py             `create-api-key`
+  worker.py          Cold-path evaluation worker (SKIP LOCKED queue)
   routes/            health, completions, traces
   providers/         base, mock, openai_compatible, gemini, anthropic + router
+  evaluators/        base, heuristics (empty/latency/refusal), pipeline
 ```
 
 ## Intentional Phase-1 tradeoffs
@@ -111,6 +148,7 @@ src/helios/
 
 ## Suggested next slice
 
-**Phase 1.5** — a `TraceSink` abstraction + background evaluator worker (empty
-output, latency, cost-threshold, keyword-toxicity checks) to bridge from
-"make AI visible" to "make AI evaluatable".
+**Phase 2 — Knowledge retrieval & grounding**: document ingestion, chunking,
+embeddings, vector + keyword search, citations, and an LLM-as-judge
+`GroundednessEvaluator` that plugs into the existing `EvaluationPipeline`
+(no worker changes needed).

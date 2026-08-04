@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from helios.config import settings
 from helios.cost import compute_cost
 from helios.db import get_db
-from helios.models import ApiKey, DecisionTrace
+from helios.models import ApiKey, DecisionTrace, EvaluationJob
 from helios.normalization import normalize_request
 from helios.providers import choose_provider_model
 from helios.schemas import CompleteRequest, CompleteResponse
@@ -15,6 +16,23 @@ from helios.security import get_api_key
 
 
 router = APIRouter(tags=["completions"])
+logger = logging.getLogger("helios.gateway")
+
+
+def _enqueue_evaluation(db: Session, trace_id: str) -> None:
+    """
+    Enqueue async (cold-path) evaluation for a trace.
+
+    Best-effort by design: the completion has already succeeded and been
+    returned to the caller conceptually, so a queue hiccup must never turn a
+    good AI decision into a 5xx. Failures are logged, not raised.
+    """
+    try:
+        db.add(EvaluationJob(trace_id=trace_id, status="pending"))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.warning("failed to enqueue evaluation job for trace %s", trace_id)
 
 
 @router.post("/v1/ai/complete", response_model=CompleteResponse)
@@ -86,6 +104,9 @@ async def create_completion(
 
         db.add(trace)
         db.commit()
+
+        # Hand off to the cold path. Never blocks or breaks the hot path.
+        _enqueue_evaluation(db, trace_id)
 
         return CompleteResponse(
             trace_id=trace_id,

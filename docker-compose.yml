@@ -25,3 +25,17 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+
+  # Cold path: async evaluation worker(s). Scale freely — `SKIP LOCKED` keeps
+  # concurrent workers from double-processing jobs:  docker compose up --scale worker=3
+  worker:
+    build: .
+    command: ["python", "-m", "helios.worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HELIOS_DATABASE_URL: postgresql+psycopg2://helios:helios@db:5432/helios
+    depends_on:
+      db:
+        condition: service_healthy
