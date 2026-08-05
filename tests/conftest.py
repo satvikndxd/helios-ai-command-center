@@ -29,14 +29,11 @@ def client():
     return TestClient(app)
 
 
-@pytest.fixture()
-def api_key() -> str:
-    """Create a tenant/app and return a raw API key usable in requests."""
-    raw_key = "test-key-abc123"
+def _mint_key(tenant_name: str, app_name: str, raw_key: str) -> str:
     db = SessionLocal()
     try:
-        tenant = get_or_create_tenant(db, "acme")
-        app_row = get_or_create_application(db, tenant, "support")
+        tenant = get_or_create_tenant(db, tenant_name)
+        app_row = get_or_create_application(db, tenant, app_name)
         existing = (
             db.query(ApiKey).filter(ApiKey.key_hash == hash_api_key(raw_key)).first()
         )
@@ -54,3 +51,15 @@ def api_key() -> str:
     finally:
         db.close()
     return raw_key
+
+
+@pytest.fixture()
+def api_key() -> str:
+    """Tenant 'acme': raw API key usable in requests."""
+    return _mint_key("acme", "support", "test-key-abc123")
+
+
+@pytest.fixture()
+def other_tenant_api_key() -> str:
+    """A DIFFERENT tenant ('globex') for isolation tests."""
+    return _mint_key("globex", "support", "test-key-globex-999")

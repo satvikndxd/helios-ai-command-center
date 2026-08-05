@@ -13,12 +13,19 @@ from sqlalchemy import (
     Text,
     func,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from helios.config import settings
 
 
 # Use JSONB on Postgres, plain JSON elsewhere (e.g. SQLite in tests).
 JSONType = JSON().with_variant(JSONB(), "postgresql")
+
+# Real pgvector VECTOR(dim) on Postgres; JSON list-of-floats elsewhere so the
+# same model works on SQLite (tests) with a Python cosine fallback in retrieval.
+EmbeddingType = JSON().with_variant(Vector(settings.embedding_dim), "postgresql")
 
 
 class Base(DeclarativeBase):
@@ -318,3 +325,85 @@ class EvaluationJob(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class Document(Base):
+    """A knowledge-base document owned by a tenant (Phase 2)."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+
+class Chunk(Base):
+    """
+    A retrievable slice of a Document with its embedding.
+
+    tenant_id is denormalized from Document ON PURPOSE: it lets the vector
+    search apply `WHERE tenant_id = :tenant_id` directly on this table before
+    the distance calculation — database-level tenant isolation with no join.
+    """
+
+    __tablename__ = "chunks"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=generate_uuid,
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("documents.id"),
+        nullable=False,
+        index=True,
+    )
+    tenant_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("tenants.id"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    content: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    embedding: Mapped[list | None] = mapped_column(
+        EmbeddingType,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    document: Mapped[Document] = relationship(back_populates="chunks")

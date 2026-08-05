@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:16
+    # pgvector/pgvector = official Postgres image + pgvector extension baked in.
+    # Stock postgres:16 would fail CREATE EXTENSION vector on startup.
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: helios
       POSTGRES_PASSWORD: helios

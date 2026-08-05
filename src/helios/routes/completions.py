@@ -11,6 +11,7 @@ from helios.db import get_db
 from helios.models import ApiKey, DecisionTrace, EvaluationJob
 from helios.normalization import normalize_request
 from helios.providers import choose_provider_model
+from helios.retrieval import build_context_prompt, chunks_to_citations, search
 from helios.schemas import CompleteRequest, CompleteResponse
 from helios.security import get_api_key
 
@@ -44,12 +45,13 @@ async def create_completion(
     """
     Unified Helios AI endpoint.
 
-    Phase 1 responsibilities:
+    Responsibilities:
     - authenticate
     - normalize
+    - (optional) retrieve grounded context from the tenant's knowledge base
     - choose provider
     - call provider
-    - capture trace
+    - capture trace (with citations)
     - return response
     """
 
@@ -57,8 +59,37 @@ async def create_completion(
     trace_id = str(uuid.uuid4())
 
     normalized = normalize_request(payload, api_key)
+    citations: list[dict] = []
 
     try:
+        # Phase 2: RAG. Retrieval failures fail the request loudly — silently
+        # answering WITHOUT the knowledge base the caller asked for would be an
+        # ungrounded response masquerading as a grounded one.
+        if payload.use_knowledge_base:
+            retrieved = await search(
+                db=db,
+                tenant_id=api_key.tenant_id,
+                query=normalized["input_text"],
+                settings=settings,
+                top_k=payload.top_k,
+            )
+            if retrieved:
+                normalized["retrieved_context"] = [
+                    {
+                        "chunk_id": c.chunk_id,
+                        "document_id": c.document_id,
+                        "title": c.document_title,
+                        "score": round(c.score, 4),
+                    }
+                    for c in retrieved
+                ]
+                normalized["input_text"] = build_context_prompt(
+                    retrieved, normalized["input_text"]
+                )
+                citations = chunks_to_citations(retrieved)
+            else:
+                normalized["retrieved_context"] = []
+
         provider, model_id, provider_name = choose_provider_model(normalized, settings)
 
         normalized["provider"] = provider_name
@@ -88,7 +119,7 @@ async def create_completion(
             model_id=model_id,
             output_text=result.output_text,
             response_payload=result.raw,
-            citations=result.citations,
+            citations=citations or result.citations,
             tool_calls=[],
             cost_usd=cost_usd,
             latency_ms=latency_ms,
@@ -117,7 +148,7 @@ async def create_completion(
             },
             cost_usd=cost_usd,
             latency_ms=latency_ms,
-            citations=result.citations,
+            citations=citations or result.citations,
             policy=trace.policy_result or {},
         )
 
