@@ -1,10 +1,11 @@
-# Project Helios — Gateway (Phase 1 Walking Skeleton)
+# Project Helios — Enterprise AI Command Center
 
-Helios is an enterprise AI operating system: a governed, observable layer that
-sits above models, data, and applications. This repository is the **Phase 1
-walking skeleton** — the unified AI gateway with full decision-trace capture,
-which every later subsystem (evaluation, retrieval, routing, simulation,
-governance) hangs off of.
+Helios is an enterprise AI operating system: a governed, observable command
+center that sits above models, data, and applications. This repository holds
+the walking skeleton (Phases 1–2): the unified AI gateway with full
+decision-trace capture, async evaluation, and tenant-isolated knowledge
+retrieval — the base every later subsystem (routing, simulation, governance)
+hangs off of.
 
 > Build order (from the architecture spec): **visibility first**, then
 > evaluation, grounding, safety, optimization. This slice delivers visibility.
