@@ -1,8 +1,8 @@
 import argparse
 import secrets
 
-from helios.db import SessionLocal, engine
-from helios.models import ApiKey, Application, Base, Tenant, hash_api_key
+from helios.db import SessionLocal, init_db
+from helios.models import ApiKey, Application, Tenant, hash_api_key
 
 
 def get_or_create_tenant(db, name: str) -> Tenant:
@@ -42,7 +42,7 @@ def get_or_create_application(db, tenant: Tenant, name: str) -> Application:
 
 
 def create_api_key(tenant_name: str, application_name: str) -> None:
-    Base.metadata.create_all(bind=engine)
+    init_db()
 
     db = SessionLocal()
 

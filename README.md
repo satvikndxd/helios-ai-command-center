@@ -29,6 +29,12 @@ governance) hangs off of.
   claims jobs from a Postgres-backed queue (`FOR UPDATE SKIP LOCKED`) and
   writes `evaluation_scores` back onto the trace. Ships with three heuristic
   evaluators: empty-output, latency-SLA, and refusal-detection.
+- **Knowledge retrieval & grounding (Phase 2)** — tenant-isolated RAG on
+  `pgvector`. Ingest documents (`POST /v1/knowledge/documents` → chunk →
+  embed → store in one transaction), then pass `"use_knowledge_base": true`
+  to `/v1/ai/complete`: the gateway embeds the query, retrieves the top-k
+  nearest chunks **for that tenant only**, injects them as numbered context,
+  and returns matching `citations`.
 
 ## Quick start (Docker)
 
@@ -120,6 +126,32 @@ docker compose up --build --scale worker=3   # SKIP LOCKED => no double-processi
 already run — no Kafka/Redis/Celery. It's the Outbox pattern we'll later back
 with Kafka, without the infrastructure today.
 
+## Knowledge retrieval (RAG)
+
+Vectors live in Postgres via **pgvector** — metadata and embeddings share one
+ACID transaction (no ghost vectors), and tenant isolation is a database-level
+`WHERE tenant_id = …` applied *before* the distance calculation. The Compose
+`db` image is `pgvector/pgvector:pg16` (stock `postgres:16` lacks the
+extension); `init_db()` runs `CREATE EXTENSION IF NOT EXISTS vector`.
+
+```bash
+# 1. Ingest a document (chunked ~500 chars with 50 overlap, embedded, stored)
+curl -s -X POST http://localhost:8000/v1/knowledge/documents \
+  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"title": "Refund Policy", "content": "Enterprise customers may request refunds within 30 days..."}'
+
+# 2. Grounded completion with citations
+curl -s -X POST http://localhost:8000/v1/ai/complete \
+  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"input": "What is the refund window?", "use_knowledge_base": true}'
+```
+
+Embeddings are provider-abstracted like LLMs: `mock` (default, deterministic
+hashed bag-of-words — no network), `gemini` (free tier, set
+`HELIOS_EMBEDDING_DIM=768`), or `openai`. On non-Postgres databases (the test
+suite's SQLite) retrieval transparently falls back to Python cosine similarity
+over the tenant's chunks; Postgres + `<=>` is the production path.
+
 ## Layout
 
 ```
@@ -134,9 +166,12 @@ src/helios/
   cost.py            Token-usage -> USD (free tiers = $0)
   cli.py             `create-api-key`
   worker.py          Cold-path evaluation worker (SKIP LOCKED queue)
-  routes/            health, completions, traces
+  chunking.py        Overlapping character chunker
+  retrieval.py       Tenant-isolated vector search (pgvector / Python fallback)
+  routes/            health, completions, traces, knowledge
   providers/         base, mock, openai_compatible, gemini, anthropic + router
   evaluators/        base, heuristics (empty/latency/refusal), pipeline
+  embeddings/        base, mock (hashed BoW), live (gemini/openai)
 ```
 
 ## Intentional Phase-1 tradeoffs
@@ -148,7 +183,7 @@ src/helios/
 
 ## Suggested next slice
 
-**Phase 2 — Knowledge retrieval & grounding**: document ingestion, chunking,
-embeddings, vector + keyword search, citations, and an LLM-as-judge
-`GroundednessEvaluator` that plugs into the existing `EvaluationPipeline`
-(no worker changes needed).
+**Phase 3 — Hallucination detection & groundedness**: a `GroundednessEvaluator`
+(claim-vs-context overlap, later LLM-as-judge) that plugs into the existing
+`EvaluationPipeline` — traces already persist `retrieved_context` and
+`citations`, so the evaluator has everything it needs with zero worker changes.

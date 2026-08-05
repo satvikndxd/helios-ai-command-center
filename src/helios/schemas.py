@@ -37,6 +37,10 @@ class CompleteRequest(BaseModel):
     provider: str | None = None
     model: str | None = None
 
+    # Phase 2: ground the completion in the tenant's knowledge base.
+    use_knowledge_base: bool = False
+    top_k: int | None = Field(default=None, ge=1, le=20)
+
     constraints: Constraints = Field(default_factory=Constraints)
 
 
@@ -50,6 +54,23 @@ class CompleteResponse(BaseModel):
 
     citations: list[Any] = Field(default_factory=list)
     policy: dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentIn(BaseModel):
+    """Payload for knowledge-base document ingestion."""
+
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1)
+
+
+class DocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    title: str
+    chunk_count: int
+    created_at: datetime
 
 
 class TraceOut(BaseModel):

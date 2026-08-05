@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     anthropic_version: str = "2023-06-01"
     default_anthropic_model: str = "claude-3-5-sonnet-latest"
 
+    # --- Embeddings (Phase 2: knowledge retrieval) ---------------------------
+    # Options: mock | gemini | openai
+    embedding_provider: str = "mock"
+    # Vector column dimension. 1536 matches OpenAI text-embedding-3-small; use
+    # 768 for Gemini text-embedding-004. Changing this after tables exist
+    # requires a migration.
+    embedding_dim: int = 1536
+    default_gemini_embedding_model: str = "text-embedding-004"
+    default_openai_embedding_model: str = "text-embedding-3-small"
+
+    # Retrieval defaults
+    retrieval_top_k: int = 3
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
     # Generation defaults
     default_max_tokens: int = 1024
 
