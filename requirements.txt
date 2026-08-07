@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlalchemy>=2.0.30
+psycopg2-binary
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+httpx>=0.27.0
+pgvector>=0.2.5

@@ -1,0 +1,43 @@
+services:
+  db:
+    # pgvector/pgvector = official Postgres image + pgvector extension baked in.
+    # Stock postgres:16 would fail CREATE EXTENSION vector on startup.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: helios
+      POSTGRES_PASSWORD: helios
+      POSTGRES_DB: helios
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helios -d helios"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HELIOS_DATABASE_URL: postgresql+psycopg2://helios:helios@db:5432/helios
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  # Cold path: async evaluation worker(s). Scale freely — `SKIP LOCKED` keeps
+  # concurrent workers from double-processing jobs:  docker compose up --scale worker=3
+  worker:
+    build: .
+    command: ["python", "-m", "helios.worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HELIOS_DATABASE_URL: postgresql+psycopg2://helios:helios@db:5432/helios
+    depends_on:
+      db:
+        condition: service_healthy
