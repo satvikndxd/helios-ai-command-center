@@ -6,6 +6,36 @@ from helios.providers.mock import MockProvider
 from helios.providers.openai_compatible import OpenAICompatibleProvider
 
 
+def get_provider(provider_name: str, settings: Settings) -> BaseProvider:
+    """Instantiate a provider adapter by name (router v2 entry point)."""
+    name = provider_name.lower()
+    if name == "mock":
+        return MockProvider()
+    if name == "groq":
+        return OpenAICompatibleProvider(
+            base_url=settings.groq_base_url,
+            api_key=settings.groq_api_key,
+            provider_label="groq",
+        )
+    if name == "openrouter":
+        return OpenAICompatibleProvider(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            provider_label="openrouter",
+        )
+    if name == "gemini":
+        return GeminiProvider()
+    if name in {"openai", "openai-compatible"}:
+        return OpenAICompatibleProvider(
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key,
+            provider_label="openai",
+        )
+    if name == "anthropic":
+        return AnthropicProvider()
+    raise ValueError(f"Unsupported provider: {provider_name}")
+
+
 def choose_provider_model(
     normalized: dict,
     settings: Settings,
@@ -94,4 +124,5 @@ __all__ = [
     "GeminiProvider",
     "AnthropicProvider",
     "choose_provider_model",
+    "get_provider",
 ]
