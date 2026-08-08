@@ -36,6 +36,37 @@ hangs off of.
   to `/v1/ai/complete`: the gateway embeds the query, retrieves the top-k
   nearest chunks **for that tenant only**, injects them as numbered context,
   and returns matching `citations`.
+- **Sentinel + policy engine (safety)** — synchronous hot-path checks: PII
+  detection/redaction, prompt-injection detection (including in retrieved
+  documents, which are treated as untrusted and dropped when poisoned), and
+  output leak scanning. Policy-as-code rules enforce preflight and output
+  gates (block PII in high-risk requests, redact PII before external
+  providers, require citations for high-risk answers, block leaked PII in
+  outputs). Blocked decisions are persisted as `status=blocked` traces.
+- **Router v2 (registry + fallback)** — model registry with quality/cost/
+  privacy metadata; explainable routing (explicit > risk override > default),
+  ordered fallback chains on provider failure, and a pre-call cost guardrail
+  against `max_cost_usd`. Every decision's chain, reasons, and attempts are
+  recorded on the trace.
+- **Groundedness & hallucination risk** — claim-level evaluator: splits
+  output into claims, scores content-word support against the retrieved
+  context stored on the trace, and emits a `hallucination_risk` score. High
+  risk or failed evaluators auto-escalate to the human review queue.
+- **Human review queue + feedback** — `GET /v1/review/queue`,
+  `POST /v1/review/{id}/resolve`; `POST /v1/traces/{id}/feedback` records
+  user/business outcomes and thumbs-down escalates to review.
+- **Simulator (traffic replay)** — `POST /v1/simulations/run` replays recent
+  production traffic against a candidate provider/model, evaluates outputs
+  with the same pipeline, and produces a deployment risk report
+  (failure-rate delta, failure examples, canary/do-not-deploy
+  recommendation).
+- **Forge (dataset factory)** — `POST /v1/datasets/build` mines failures /
+  negative feedback into versioned evaluation datasets with lineage;
+  `GET /v1/datasets/{id}/export` emits JSONL.
+- **Knowledge graph MVP** — heuristic entity extraction at ingestion
+  (typed: Policy/Service/Product/Incident/Term) with `mentioned_in`
+  provenance relationships, entity dedup across documents, and traversal
+  endpoints (`/v1/knowledge/entities`, `/v1/knowledge/entities/{id}/documents`).
 
 ## Quick start (Docker)
 
@@ -182,9 +213,17 @@ src/helios/
 - **No rate limiting / policy engine / async eval yet** — the trace already
   carries `policy_result` and `evaluation_scores` hooks for those phases.
 
-## Suggested next slice
+## Spec coverage & enterprise track
 
-**Phase 3 — Hallucination detection & groundedness**: a `GroundednessEvaluator`
-(claim-vs-context overlap, later LLM-as-judge) that plugs into the existing
-`EvaluationPipeline` — traces already persist `retrieved_context` and
-`citations`, so the evaluator has everything it needs with zero worker changes.
+All seven pillars of the Helios spec now have working walking-skeleton slices:
+gateway+traces, evaluation, retrieval+grounding, hallucination detection,
+routing, simulation, and the dataset factory — plus policy-as-code, a human
+review queue, and a knowledge-graph MVP.
+
+Deliberately **not** built at this scale (the enterprise track, in spec order):
+Kafka/ClickHouse event streaming, OPA policy engine, Neo4j graph store,
+Kubernetes/Helm/multi-region deployment, SSO/OIDC + full RBAC, streaming
+responses with eval hooks, semantic caching, LLM-as-judge evaluators, Label
+Studio-grade annotation UI, dashboards (Grafana/OTel), SDKs, and the
+fine-tuning platform. Each slots in behind an existing interface (TraceSink,
+BaseEvaluator, policy engine, provider/embedding adapters) without rewrites.
