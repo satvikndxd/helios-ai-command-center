@@ -73,6 +73,79 @@ class DocumentOut(BaseModel):
     created_at: datetime
 
 
+class FeedbackIn(BaseModel):
+    """User/business feedback on a decision (FR-EV-008)."""
+
+    rating: str = Field(pattern="^(up|down)$")
+    comment: str | None = None
+    outcome: str | None = None  # e.g. "ticket_resolved", "answer_rejected"
+
+
+class ReviewResolveIn(BaseModel):
+    verdict: str = Field(pattern="^(approve|reject)$")
+    notes: str | None = None
+
+
+class ReviewItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    trace_id: str
+    reason: str
+    status: str
+    resolution: dict | None
+    created_at: datetime
+
+
+class DatasetBuildIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    source: str = Field(default="failures", pattern="^(failures|negative_feedback|all)$")
+    limit: int = Field(default=100, ge=1, le=1000)
+
+
+class DatasetOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    name: str
+    version: int
+    kind: str
+    source: str
+    item_count: int
+    created_at: datetime
+
+
+class SimulationRunIn(BaseModel):
+    candidate_provider: str = "mock"
+    candidate_model: str | None = None
+    limit: int = Field(default=20, ge=1, le=200)
+    task_type: str | None = None
+
+
+class SimulationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    params: dict
+    report: dict | None
+    status: str
+    created_at: datetime
+
+
+class EntityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    type: str
+    name: str
+    confidence: float
+    created_at: datetime
+
+
 class TraceOut(BaseModel):
     """
     Public trace representation for Phase 1.
@@ -110,5 +183,6 @@ class TraceOut(BaseModel):
 
     status: str
     error: dict | None
+    feedback: dict | None = None
 
     created_at: datetime

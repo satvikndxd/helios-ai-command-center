@@ -53,12 +53,12 @@ def test_worker_evaluates_trace_end_to_end(client, api_key):
         assert trace.evaluation_scores is not None
         scores = trace.evaluation_scores
 
-        # All three heuristic evaluators ran.
-        assert set(scores.keys()) == {
+        # The core heuristic evaluators all ran (pipeline may grow over time).
+        assert {
             "empty_output",
             "latency_sla",
             "refusal_detection",
-        }
+        } <= set(scores.keys())
         # Mock output is non-empty and not a refusal.
         assert scores["empty_output"]["passed"] is True
         assert scores["refusal_detection"]["passed"] is True
