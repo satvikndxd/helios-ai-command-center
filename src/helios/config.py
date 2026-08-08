@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     default_provider: str = "mock"
     default_model: str = "mock-model-1"
 
+    # Router v2: comma-separated ordered fallback providers, e.g. "groq,mock"
+    fallback_providers: str = ""
+    # Provider to prefer for high/critical-risk requests (empty = default)
+    high_risk_provider: str = ""
+
     # --- Free providers ------------------------------------------------------
     # Groq (OpenAI-compatible, free tier): https://console.groq.com/keys
     groq_api_key: str | None = None

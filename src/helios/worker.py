@@ -6,7 +6,28 @@ from sqlalchemy.orm import Session
 
 from helios.db import SessionLocal
 from helios.evaluators import default_pipeline
-from helios.models import DecisionTrace, EvaluationJob
+from helios.models import DecisionTrace, EvaluationJob, ReviewItem
+
+
+def _escalate_if_needed(db: Session, trace: DecisionTrace, scores: dict) -> None:
+    """
+    Route low-quality / high-risk decisions to human review (FR-EV-005).
+
+    Triggers: any failed evaluator, or hallucination risk >= 0.5.
+    """
+    reasons = [name for name, s in scores.items() if not s.get("passed")]
+    risk = scores.get("groundedness", {}).get("details", {}).get("hallucination_risk")
+    if risk is not None and risk >= 0.5 and "hallucination_risk" not in reasons:
+        reasons.append(f"hallucination_risk={risk}")
+    if not reasons:
+        return
+    db.add(
+        ReviewItem(
+            tenant_id=trace.tenant_id,
+            trace_id=trace.id,
+            reason=", ".join(reasons)[:255],
+        )
+    )
 
 logger = logging.getLogger("helios.worker")
 
@@ -91,6 +112,7 @@ async def process_batch(batch_size: int = 10) -> int:
             try:
                 scores = pipeline.run(trace)
                 trace.evaluation_scores = scores
+                _escalate_if_needed(db, trace, scores)
                 if job is not None:
                     job.status = "completed"
                     job.last_error = None

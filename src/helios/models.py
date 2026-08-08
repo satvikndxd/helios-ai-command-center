@@ -266,6 +266,10 @@ class DecisionTrace(Base):
         JSONType,
         nullable=True,
     )
+    feedback: Mapped[dict | None] = mapped_column(
+        JSONType,
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -407,3 +411,131 @@ class Chunk(Base):
     )
 
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+class ReviewItem(Base):
+    """Human review queue (FR-EV-005): low-quality/high-risk decisions."""
+
+    __tablename__ = "review_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    trace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("decision_traces.id"), nullable=False, index=True
+    )
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="open", index=True
+    )  # open | resolved
+    resolution: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class Dataset(Base):
+    """Versioned evaluation dataset mined from production traces (Forge)."""
+
+    __tablename__ = "datasets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    kind: Mapped[str] = mapped_column(String(50), nullable=False, default="evaluation")
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="production")
+    item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    items: Mapped[list["DatasetItem"]] = relationship(
+        back_populates="dataset", cascade="all, delete-orphan"
+    )
+
+
+class DatasetItem(Base):
+    __tablename__ = "dataset_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    dataset_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("datasets.id"), nullable=False, index=True
+    )
+    trace_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("decision_traces.id"), nullable=True
+    )
+    input_text: Mapped[str] = mapped_column(Text, nullable=False)
+    reference_output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    labels: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    dataset: Mapped[Dataset] = relationship(back_populates="items")
+
+
+class SimulationRun(Base):
+    """Traffic-replay simulation of a candidate provider/model (FR-SIM-002/005)."""
+
+    __tablename__ = "simulation_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    params: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    report: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Entity(Base):
+    """Knowledge-graph entity (Phase 4 MVP) with provenance & confidence."""
+
+    __tablename__ = "entities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    type: Mapped[str] = mapped_column(String(50), nullable=False, default="Term")
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Relationship(Base):
+    __tablename__ = "relationships"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    source_entity_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("entities.id"), nullable=False, index=True
+    )
+    relationship_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="mentioned_in"
+    )
+    # Target document (MVP relationships are entity -> document provenance).
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=False, index=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

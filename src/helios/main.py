@@ -4,7 +4,15 @@ from fastapi import FastAPI
 
 from helios.config import settings
 from helios.db import init_db
-from helios.routes import completions, health, knowledge, traces
+from helios.routes import (
+    completions,
+    datasets,
+    health,
+    knowledge,
+    review,
+    simulations,
+    traces,
+)
 
 
 @asynccontextmanager
@@ -27,6 +35,9 @@ app.include_router(health.router)
 app.include_router(completions.router)
 app.include_router(traces.router)
 app.include_router(knowledge.router)
+app.include_router(review.router)
+app.include_router(datasets.router)
+app.include_router(simulations.router)
 
 
 @app.get("/")
