@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="sunCore" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD166"/>
+      <stop offset="0.55" stop-color="#F4A261"/>
+      <stop offset="1" stop-color="#E76F51"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4CC9F0"/>
+      <stop offset="1" stop-color="#7209B7"/>
+    </linearGradient>
+    <radialGradient id="bg" cx="0.5" cy="0.42" r="0.85">
+      <stop offset="0" stop-color="#1B2A4A"/>
+      <stop offset="1" stop-color="#0B1220"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- rounded background plate -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="url(#bg)"/>
+
+  <!-- command rings (radar / observability motif) -->
+  <g fill="none" stroke="#4CC9F0" opacity="0.28">
+    <circle cx="256" cy="256" r="168" stroke-width="2" stroke-dasharray="3 9"/>
+    <circle cx="256" cy="256" r="128" stroke-width="1.5" stroke-dasharray="2 7"/>
+    <line x1="88" y1="256" x2="424" y2="256" stroke-width="1"/>
+    <line x1="256" y1="88" x2="256" y2="424" stroke-width="1"/>
+  </g>
+  <g fill="none" stroke="url(#ring)" stroke-width="3.5" opacity="0.85">
+    <circle cx="256" cy="256" r="168"/>
+  </g>
+
+  <!-- orbital AI nodes (the gateway sits between models & apps) -->
+  <g fill="#4CC9F0">
+    <circle cx="424" cy="330" r="9"/>
+    <circle cx="332" cy="421" r="7"/>
+    <circle cx="102" cy="182" r="7"/>
+    <circle cx="196" cy="100" r="6"/>
+  </g>
+  <g stroke="#FFD166" stroke-width="2.5" opacity="0.9">
+    <line x1="424" y1="330" x2="256" y2="256"/>
+    <line x1="332" y1="421" x2="256" y2="256"/>
+    <line x1="102" y1="182" x2="256" y2="256"/>
+    <line x1="196" y1="100" x2="256" y2="256"/>
+  </g>
+
+  <!-- radiant sun rays -->
+  <g fill="url(#sunCore)" filter="url(#glow)">
+    <circle cx="256" cy="256" r="72"/>
+  </g>
+  <g fill="#FFD166" opacity="0.35">
+    <g >
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(0 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(45 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(90 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(135 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(180 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(225 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(270 256 256)"/>
+      <rect x="248" y="128" width="16" height="30" rx="8" transform="rotate(315 256 256)"/>
+    </g>
+  </g>
+
+  <!-- core eclipse (command node) -->
+  <circle cx="256" cy="256" r="34" fill="#0B1220"/>
+  <circle cx="256" cy="256" r="34" fill="none" stroke="#FFD166" stroke-width="3"/>
+  <circle cx="256" cy="256" r="17" fill="#4CC9F0"/>
+  <circle cx="256" cy="256" r="17" fill="none" stroke="#0B1220" stroke-width="2"/>
+</svg>
