@@ -1,6 +1,21 @@
 # Project Helios — Enterprise AI Command Center
 
-Helios is an enterprise AI operating system: a governed, observable command
+<p align="center">
+  <img src="assets/helios-banner.svg" alt="Helios — Enterprise AI Command Center" width="860">
+</p>
+
+<p align="center">
+  <img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-42_passing-FFD166?style=flat-square">
+  <img alt="Status" src="https://img.shields.io/badge/status-stable-FFD166?style=flat-square">
+</p>
+
+<p align="center">
+  <img src="assets/helios-logo.svg" alt="Helios logo" width="160">
+</p>
+
+**Helios** is an enterprise AI operating system: a governed, observable command
 center that sits above models, data, and applications. This repository holds
 the **complete Helios MVP** — all seven pillars of the architecture spec as
 working, tested slices: the unified AI gateway with decision-trace capture,
@@ -13,6 +28,20 @@ enterprise subsystem hangs off of.
 > Build order (from the architecture spec): **visibility first**, then
 > evaluation, grounding, safety, optimization, continuous improvement.
 > This repo delivers all six, in that order, one commit per phase.
+
+## Contents
+
+- [What's inside](#whats-inside)
+- [Quick start (Docker)](#quick-start-docker)
+- [Quick start (local, no Postgres)](#quick-start-local-no-postgres)
+- [Using a free LLM provider](#using-a-free-llm-provider)
+- [Tests](#tests)
+- [Async evaluation](#async-evaluation-hot-path-vs-cold-path)
+- [Knowledge retrieval (RAG)](#knowledge-retrieval-rag)
+- [Layout](#layout)
+- [Measured results](#measured-results)
+- [Intentional MVP tradeoffs](#intentional-mvp-tradeoffs)
+- [Spec coverage & enterprise track](#spec-coverage--enterprise-track)
 
 ## What's inside
 
