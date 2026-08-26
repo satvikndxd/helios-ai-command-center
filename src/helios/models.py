@@ -539,3 +539,32 @@ class Relationship(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class WebAccessJob(Base):
+    """
+    One broker dispatch through the web access plane (Phase W1).
+
+    Persists the sanitized request, the adapter fallback chain with
+    per-source status (failure honesty), the policy decision, and metadata
+    of the returned documents (URL, title, content hash, warnings) — never
+    raw cookies, credentials, or oversized payloads.  Large artifacts
+    belong in object storage (enterprise track).
+    """
+
+    __tablename__ = "web_access_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    operation: Mapped[str] = mapped_column(String(20), nullable=False)
+    request: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
+    policy_decision: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    source_status: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    # Document metadata only: url/title/hash/adapter/warnings — not raw bodies.
+    documents_meta: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

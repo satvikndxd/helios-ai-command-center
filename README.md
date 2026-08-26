@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-52_passing-FFD166?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-68_passing-FFD166?style=flat-square">
   <img alt="Status" src="https://img.shields.io/badge/status-stable-FFD166?style=flat-square">
 </p>
 
@@ -44,8 +44,10 @@ enterprise subsystem hangs off of.
 - [Spec coverage & enterprise track](#spec-coverage--enterprise-track)
 - [Terminal-first agent interface](#terminal-first-agent-interface)
 - [Built-in and custom gateways](#built-in-and-custom-gateways)
+- [Governed web access](#governed-web-access)
 - [YC-scale product direction](#yc-scale-product-direction)
 - [YC27 technical checklist](docs/YC27_TECHNICAL_CHECKLIST.md)
+- [Web access architecture](docs/WEB_ACCESS_ARCHITECTURE.md)
 
 ## What's inside
 
@@ -109,6 +111,12 @@ enterprise subsystem hangs off of.
   any OpenAI-compatible gateway (marked **DIRECT**), with a data-driven
   gateway catalog, custom gateway profiles (`gateway-add`/`gateway-list`,
   no secrets stored), and dynamic `/models` discovery.
+- **Governed web access (read path)** — a Web Access Broker behind
+  `/v1/web/*`: policy preflight (write ops refused, domain allowlist,
+  volume budgets), source adapters (public web/RSS, GitHub, Reddit, YouTube
+  transcripts, optional Agent-Reach MCP + SocialCrawl connectors), content
+  sanitization (trust labeling, injection quarantine, secret scrubbing),
+  per-source failure honesty, and persisted `WebAccessJob` audit records.
 
 ## Quick start (Docker)
 
@@ -244,7 +252,8 @@ src/helios/
   retrieval.py       Tenant-isolated vector search (pgvector / Python fallback)
   gateways.py        Gateway catalog (built-in + custom profiles, /models discovery)
   tui/               Terminal agent interface (GOVERNED / DIRECT modes)
-  routes/            health, completions, traces, knowledge
+  web/               Web access plane: broker, policy, sanitizer, adapters
+  routes/            health, completions, traces, knowledge, web
   providers/         base, mock, openai_compatible, gemini, anthropic + router
   evaluators/        base, heuristics (empty/latency/refusal), pipeline
   embeddings/        base, mock (hashed BoW), live (gemini/openai)
@@ -259,7 +268,7 @@ simulate). No projections.
 
 | Metric | Measured |
 |---|---|
-| Test suite | **52/52 passing in ~2s**, zero external services (SQLite + mock providers) |
+| Test suite | **68/68 passing in ~2s**, zero external services (SQLite + mock providers) |
 | Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
 | Groundedness on the §24 refund query | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
 | Retrieval ranking | relevant doc scored **0.344** vs **0.000** for the irrelevant doc (cosine, top-k=3) |
@@ -270,7 +279,8 @@ simulate). No projections.
 | Feedback loop | thumbs-down → review-queue item **in the same request**; blocked/failed traces → versioned dataset (`failure-cases:v1 → v2` lineage verified) |
 | Simulator | replayed production traces through a candidate, same eval pipeline; report: baseline vs candidate failure rate + `canary_1_percent` / `do_not_deploy` recommendation |
 | Fallback routing | provider failure → next candidate in chain; every attempt recorded on the trace (tested via unsupported-provider path) |
-| Footprint | **~4.5k LOC** src + **~1.1k LOC** tests, **16 API endpoints**, 2 deployable processes (api + worker) + a terminal UI, 1 database |
+| Web access controls | untrusted-content labeling, injection quarantine, secret scrubbing, write-op refusal, domain allowlist, and rate-limit failure honesty — each covered by a dedicated test |
+| Footprint | **~5.9k LOC** src + **~1.4k LOC** tests, **21 API endpoints**, 2 deployable processes (api + worker) + a terminal UI, 1 database |
 
 ## Intentional MVP tradeoffs
 
@@ -371,6 +381,58 @@ production governance and local provider exploration while keeping the
 enterprise path explicit. Custom profiles are stored as JSON
 (`~/.helios/gateways.json`, override with `HELIOS_GATEWAYS_PATH`) and
 `gateway-add` refuses anything that looks like a raw credential.
+
+## Governed web access
+
+Helios integrates free-agent web access (public web, GitHub, Reddit, YouTube
+transcripts, Agent-Reach via MCP, SocialCrawl) **without turning the agent
+into an uncontrolled scraper**. The core rule: *web content is data, never
+authority* — a page, transcript, post, or MCP response must not be able to
+change Helios policy, credentials, or tool permissions.
+
+Everything goes through a **Web Access Broker**: policy preflight → adapter
+fallback chain → content sanitization → normalized documents with provenance,
+persisted as tenant-scoped `WebAccessJob` audit records.
+
+```bash
+# Source registry with health + trust levels
+curl -s http://localhost:8000/v1/web/sources -H "X-Helios-API-Key: $KEY"
+
+# Multi-source search with per-source status (failure honesty)
+curl -s -X POST http://localhost:8000/v1/web/search \
+  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"query": "complaints about product X"}'
+
+# Read an allowlisted public page / fetch a public YouTube transcript
+curl -s -X POST http://localhost:8000/v1/web/read \
+  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"url": "https://github.com/python/cpython"}'
+```
+
+Or from the TUI: `/web sources`, `/web status`, `/web search <query>`,
+`/web read <url>`, `/web transcript <url>`.
+
+What the read-only first release enforces (all tested):
+
+- every retrieved document is labeled `untrusted_external_content` — adapters
+  cannot upgrade trust;
+- prompt-injection patterns in retrieved content quarantine the document;
+- credential-shaped strings (API keys, bearer tokens, cookies, JWTs) are
+  scrubbed before anything is returned or persisted;
+- write/destructive operations (post, send, delete, like, follow, purchase)
+  are refused pending the approval queue;
+- reads are restricted to a domain allowlist; unknown domains are blocked
+  with an explicit reason;
+- rate-limited or unavailable sources are reported as such and the fallback
+  is visible — Helios never claims to have searched a source that failed;
+- optional connectors (Agent-Reach `HELIOS_AGENT_REACH_MCP_URL`, SocialCrawl
+  `HELIOS_SOCIALCRAWL_API_KEY`) report `unconfigured` honestly and expose
+  only allowlisted MCP tools.
+
+The full design — planes, worker isolation, MCP broker controls, browser
+sessions, secrets model, and the 4-phase rollout — is in
+[docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md)
+(diagram source: [docs/helios-web-access.mmd](docs/helios-web-access.mmd)).
 
 ## YC-scale product direction
 
