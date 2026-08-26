@@ -58,22 +58,26 @@
       <circle cx="-78" cy="-198" r="7"/>
     </g>
     <!-- sun rays -->
-    <g fill="#FFD166" opacity="0.35">
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(0)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(45)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(90)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(135)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(180)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(225)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(270)"/>
-      <rect x="-8" y="-176" width="16" height="36" rx="8" transform="rotate(315)"/>
+    <g fill="#FFD166" opacity="0.6">
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(0)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(30)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(60)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(90)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(120)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(150)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(180)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(210)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(240)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(270)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(300)"/>
+      <rect x="-6" y="-140" width="12" height="30" rx="6" transform="rotate(330)"/>
     </g>
-    <!-- core -->
+    <!-- core: the sun is the prompt -->
     <circle r="92" fill="url(#sunCore)" filter="url(#glow)"/>
-    <circle r="44" fill="#0B1220"/>
-    <circle r="44" fill="none" stroke="#FFD166" stroke-width="4"/>
-    <circle r="22" fill="#4CC9F0"/>
-    <circle r="22" fill="none" stroke="#0B1220" stroke-width="3"/>
+    <path d="M -41 -39 L 2 0 L -41 39"
+          fill="none" stroke="#0B1220" stroke-width="24"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="21" y="23" width="38" height="22" rx="6" fill="#0B1220"/>
   </g>
 
   <!-- right text content -->
@@ -93,16 +97,20 @@
   <!-- chip row -->
   <g transform="translate(660 620)">
     <g>
-      <rect x="0"   y="-16" width="150" height="32" rx="16" fill="none" stroke="#4CC9F0" stroke-opacity="0.5"/>
-      <text x="75" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="17" fill="#4CC9F0">AI Gateway</text>
+      <rect x="0"   y="-16" width="140" height="32" rx="16" fill="none" stroke="#4CC9F0" stroke-opacity="0.5"/>
+      <text x="70" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="16" fill="#4CC9F0">AI Gateway</text>
     </g>
     <g>
-      <rect x="164" y="-16" width="150" height="32" rx="16" fill="none" stroke="#FFD166" stroke-opacity="0.5"/>
-      <text x="239" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="17" fill="#FFD166">Grounded RAG</text>
+      <rect x="152" y="-16" width="140" height="32" rx="16" fill="none" stroke="#FFD166" stroke-opacity="0.5"/>
+      <text x="222" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="16" fill="#FFD166">Grounded RAG</text>
     </g>
     <g>
-      <rect x="328" y="-16" width="150" height="32" rx="16" fill="none" stroke="#7209B7" stroke-opacity="0.8"/>
-      <text x="403" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="17" fill="#B794F6">Guardrails</text>
+      <rect x="304" y="-16" width="140" height="32" rx="16" fill="none" stroke="#7209B7" stroke-opacity="0.8"/>
+      <text x="374" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="16" fill="#B794F6">Guardrails</text>
+    </g>
+    <g>
+      <rect x="456" y="-16" width="150" height="32" rx="16" fill="none" stroke="#4CC9F0" stroke-opacity="0.5"/>
+      <text x="531" y="4" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-size="16" fill="#4CC9F0">Terminal Agent</text>
     </g>
   </g>
 </svg>
