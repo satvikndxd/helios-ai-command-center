@@ -66,6 +66,14 @@ Web research (governed, read-only — requires the helios gateway):
   /web read <url>        Read a public page (policy-allowlisted domains)
   /web transcript <url>  Fetch a public YouTube transcript
 
+Approvals & self-evolution (governed):
+  /approvals             List pending approval requests
+  /approve <id>          Approve a pending action
+  /deny <id>             Deny a pending action
+  /evolve                Mine failures -> self-improvement proposals
+  /evolve list           List evolution proposals and their status
+  /evolve apply <id>     Approve + apply a proposal (versioned, rollback-able)
+
 Keys: Ctrl+K focus prompt, Ctrl+L clear screen, Ctrl+C exit.
 """
 
@@ -144,6 +152,26 @@ class HeliosTUI:
             print("Conversation cleared.")
         elif command == "/web":
             self.handle_web(args)
+        elif command == "/approvals":
+            data = self._web_call("GET", "/v1/approvals?status=pending")
+            if data:
+                if not data.get("approvals"):
+                    print("No pending approvals.")
+                for a in data.get("approvals", []):
+                    print(f"  {a['id'][:8]}  {a['action']:<28}risk={a['risk']}")
+        elif command in ("/approve", "/deny"):
+            if not args:
+                print(f"Usage: {command} <approval-id>")
+            else:
+                decision = "approved" if command == "/approve" else "denied"
+                data = self._web_call(
+                    "POST", f"/v1/approvals/{args[0]}/decide",
+                    {"decision": decision, "decided_by": os.environ.get("USER", "tui")},
+                )
+                if data:
+                    print(f"{data['id'][:8]} -> {data['status']}")
+        elif command == "/evolve":
+            self.handle_evolve(args)
         else:
             print(f"Unknown command {command} — try /help")
         return True
@@ -251,6 +279,31 @@ class HeliosTUI:
                 self._print_web_result(data)
         else:
             print(f"Unknown /web subcommand '{sub}' — try /help")
+
+    def handle_evolve(self, args: list[str]) -> None:
+        if not args:  # run an analysis
+            data = self._web_call("POST", "/v1/evolution/analyze", {})
+            if data is not None:
+                created = data.get("created", [])
+                if not created:
+                    print("No new proposals — recent traffic shows no recurring failures.")
+                for p in created:
+                    print(f"  {p['id'][:8]}  [{p['kind']}] {p['title']}")
+                    print(f"           evidence: {p['evidence']['occurrences']} traces")
+        elif args[0] == "list":
+            data = self._web_call("GET", "/v1/evolution/proposals")
+            if data:
+                for p in data.get("proposals", []):
+                    print(f"  {p['id'][:8]}  {p['status']:<12}[{p['kind']}] {p['title']}")
+        elif args[0] == "apply" and len(args) > 1:
+            data = self._web_call(
+                "POST", f"/v1/evolution/proposals/{args[1]}/approve",
+                {"decided_by": os.environ.get("USER", "tui")},
+            )
+            if data:
+                print(f"{data['id'][:8]} -> {data['status']} (v{data['version']})")
+        else:
+            print("Usage: /evolve [list|apply <id>]")
 
     # -- inference --------------------------------------------------------
 
