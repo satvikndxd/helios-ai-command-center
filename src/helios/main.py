@@ -12,6 +12,7 @@ from helios.routes import (
     review,
     simulations,
     traces,
+    web,
 )
 
 
@@ -38,6 +39,7 @@ app.include_router(knowledge.router)
 app.include_router(review.router)
 app.include_router(datasets.router)
 app.include_router(simulations.router)
+app.include_router(web.router)
 
 
 @app.get("/")
