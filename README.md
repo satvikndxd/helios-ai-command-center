@@ -1,126 +1,143 @@
-# Project Helios — Enterprise AI Command Center
+<div align="center">
 
-<p align="center">
-  <img src="assets/helios-banner.svg" alt="Helios — Enterprise AI Command Center" width="860">
-</p>
+<img src="assets/helios-banner.svg" alt="Helios — Enterprise AI Command Center" width="880">
 
-<p align="center">
-  <img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-52_passing-FFD166?style=flat-square">
-  <img alt="Status" src="https://img.shields.io/badge/status-stable-FFD166?style=flat-square">
-</p>
+<br/><br/>
 
-<p align="center">
-  <img src="assets/helios-logo.svg" alt="Helios logo" width="160">
-</p>
+<img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
+<img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-83_passing_in_~2s-FFD166?style=flat-square">
+<img alt="Dependencies" src="https://img.shields.io/badge/runtime_deps-8-FFD166?style=flat-square">
+<img alt="Status" src="https://img.shields.io/badge/status-stable-4CC9F0?style=flat-square">
 
-**Helios** is an enterprise AI operating system: a governed, observable command
-center that sits above models, data, and applications. This repository holds
-the **complete Helios MVP** — all seven pillars of the architecture spec as
-working, tested slices: the unified AI gateway with decision-trace capture,
-async evaluation, tenant-isolated grounded RAG, safety guardrails (Sentinel +
-policy-as-code), hallucination detection with human review, intelligent
-routing with fallback, pre-deployment simulation, continuous dataset
-generation (Forge), and a knowledge-graph MVP — the base every later
-enterprise subsystem hangs off of.
+<br/><br/>
 
-> Build order (from the architecture spec): **visibility first**, then
-> evaluation, grounding, safety, optimization, continuous improvement.
-> This repo delivers all six, in that order, one commit per phase.
+**The governed agent runtime.**
+A terminal-first AI agent that can use any model, any OpenAI-compatible gateway,
+and any approved tool — while recording, evaluating, and governing every meaningful action.
 
-## Contents
+[Quick start](#-quick-start) ·
+[Terminal agent](#-terminal-first-agent-interface) ·
+[Gateways](#-universal-gateway-connectivity) ·
+[Web access](#-governed-web-access) ·
+[Actions & approvals](#-agent-actions-approvals-and-idempotency) ·
+[Self-evolution](#-self-evolving-agents) ·
+[Security](#-security-model) ·
+[Results](#-measured-results) ·
+[Docs](#-documentation)
 
-- [What's inside](#whats-inside)
-- [Quick start (Docker)](#quick-start-docker)
-- [Quick start (local, no Postgres)](#quick-start-local-no-postgres)
-- [Using a free LLM provider](#using-a-free-llm-provider)
-- [Tests](#tests)
-- [Async evaluation](#async-evaluation-hot-path-vs-cold-path)
-- [Knowledge retrieval (RAG)](#knowledge-retrieval-rag)
-- [Layout](#layout)
-- [Measured results](#measured-results)
-- [Intentional MVP tradeoffs](#intentional-mvp-tradeoffs)
-- [Spec coverage & enterprise track](#spec-coverage--enterprise-track)
-- [Terminal-first agent interface](#terminal-first-agent-interface)
-- [Built-in and custom gateways](#built-in-and-custom-gateways)
-- [YC-scale product direction](#yc-scale-product-direction)
-- [YC27 technical checklist](docs/YC27_TECHNICAL_CHECKLIST.md)
+</div>
 
-## What's inside
+---
 
-- `POST /v1/ai/complete` — unified AI endpoint
-- API-key authentication + tenant/application model
-- Request normalization into a common internal schema
-- Provider adapters, **free-first**:
-  - `mock` — zero-dependency default, runs with no config
-  - `groq` — free tier, OpenAI-compatible
-  - `openrouter` — free models, OpenAI-compatible
-  - `gemini` — Google free tier
-  - `openai`, `anthropic` — optional, paid, env-var ready
-- Full `DecisionTrace` persistence (Postgres in prod, SQLite for tests)
-- Cost + latency metering (free providers metered at $0.00)
-- `GET /v1/traces` and `GET /v1/traces/{id}` with tenant isolation
-- Failed AI calls are still recorded as error traces
-- **Async evaluation (Phase 1.5)** — the gateway (hot path) enqueues an
-  `EvaluationJob` and returns immediately; a background worker (cold path)
-  claims jobs from a Postgres-backed queue (`FOR UPDATE SKIP LOCKED`) and
-  writes `evaluation_scores` back onto the trace. Ships with three heuristic
-  evaluators: empty-output, latency-SLA, and refusal-detection.
-- **Knowledge retrieval & grounding (Phase 2)** — tenant-isolated RAG on
-  `pgvector`. Ingest documents (`POST /v1/knowledge/documents` → chunk →
-  embed → store in one transaction), then pass `"use_knowledge_base": true`
-  to `/v1/ai/complete`: the gateway embeds the query, retrieves the top-k
-  nearest chunks **for that tenant only**, injects them as numbered context,
-  and returns matching `citations`.
-- **Sentinel + policy engine (safety)** — synchronous hot-path checks: PII
-  detection/redaction, prompt-injection detection (including in retrieved
-  documents, which are treated as untrusted and dropped when poisoned), and
-  output leak scanning. Policy-as-code rules enforce preflight and output
-  gates (block PII in high-risk requests, redact PII before external
-  providers, require citations for high-risk answers, block leaked PII in
-  outputs). Blocked decisions are persisted as `status=blocked` traces.
-- **Router v2 (registry + fallback)** — model registry with quality/cost/
-  privacy metadata; explainable routing (explicit > risk override > default),
-  ordered fallback chains on provider failure, and a pre-call cost guardrail
-  against `max_cost_usd`. Every decision's chain, reasons, and attempts are
-  recorded on the trace.
-- **Groundedness & hallucination risk** — claim-level evaluator: splits
-  output into claims, scores content-word support against the retrieved
-  context stored on the trace, and emits a `hallucination_risk` score. High
-  risk or failed evaluators auto-escalate to the human review queue.
-- **Human review queue + feedback** — `GET /v1/review/queue`,
-  `POST /v1/review/{id}/resolve`; `POST /v1/traces/{id}/feedback` records
-  user/business outcomes and thumbs-down escalates to review.
-- **Simulator (traffic replay)** — `POST /v1/simulations/run` replays recent
-  production traffic against a candidate provider/model, evaluates outputs
-  with the same pipeline, and produces a deployment risk report
-  (failure-rate delta, failure examples, canary/do-not-deploy
-  recommendation).
-- **Forge (dataset factory)** — `POST /v1/datasets/build` mines failures /
-  negative feedback into versioned evaluation datasets with lineage;
-  `GET /v1/datasets/{id}/export` emits JSONL.
-- **Knowledge graph MVP** — heuristic entity extraction at ingestion
-  (typed: Policy/Service/Product/Incident/Term) with `mentioned_in`
-  provenance relationships, entity dedup across documents, and traversal
-  endpoints (`/v1/knowledge/entities`, `/v1/knowledge/entities/{id}/documents`).
-- **Terminal agent interface (TUI)** — `python -m helios.tui`: a
-  terminal-first REPL over the governed Helios path (marked **GOVERNED**) or
-  any OpenAI-compatible gateway (marked **DIRECT**), with a data-driven
-  gateway catalog, custom gateway profiles (`gateway-add`/`gateway-list`,
-  no secrets stored), and dynamic `/models` discovery.
+## Why Helios
 
-## Quick start (Docker)
+Every AI platform can call a model. Almost none can answer the questions that
+matter in production: **what did the agent actually do, why was it allowed,
+what did it cost, was the answer grounded, and who approved the risky part?**
+
+Helios is an enterprise AI command center built governance-first, then wrapped
+in a developer experience that feels like a modern coding agent:
+
+- **Every decision is a trace.** Model calls, retrievals, policy verdicts,
+  routing chains, web fetches, MCP calls, browser events, approvals — one
+  auditable record per decision, tenant-isolated.
+- **Policy gates actions, not just text.** Write operations are typed,
+  approval-bound to an exact payload hash, and idempotent. Web content is
+  evidence, never authority.
+- **The system improves itself — under human control.** Helios mines its own
+  failures into typed improvement proposals with evidence, and a human holds
+  the apply/rollback gate.
+- **Zero-ceremony local start.** SQLite + mock providers run the entire
+  platform — all 83 tests, the API, the worker, and the TUI — with no
+  external services and no API keys.
+
+## At a glance
+
+| | |
+|---|---|
+| 🖥️ **Terminal agent** | GOVERNED / DIRECT modes, 26-gateway catalog, dynamic model discovery, `/web` research, `/approvals`, `/evolve` |
+| 🛡️ **Safety plane** | PII redaction, prompt-injection quarantine (inputs, RAG docs, web pages, MCP results), policy-as-code, blocked-decision traces |
+| 🌐 **Web access broker** | Policy preflight → adapter fallback → sanitization → provenance; failure honesty is structural |
+| 🔌 **MCP governance** | Trust lifecycle, tool allowlists, per-call budgets, version pinning with drift detection |
+| 🍪 **Browser sessions** | Encrypted cookie vault (fail-closed), per-session domain allowlists, event audit, approval-gated authenticated reads |
+| ✅ **Approvals & idempotency** | Typed action registry, payload-hash-bound approvals, effect journal — retries replay, never re-execute |
+| 🧬 **Self-evolution** | Failure mining → clustered evidence → typed proposals → human gate → versioned apply + rollback |
+| 📊 **Quality loop** | Async evaluation, groundedness scoring, human review queue, dataset factory, traffic-replay simulator |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    U[Developer] --> TUI[Helios TUI<br/>GOVERNED / DIRECT]
+    TUI --> GW[AI Gateway<br/>/v1/ai/complete]
+
+    subgraph CONTROL[Control Plane]
+        GW --> SEN[Sentinel<br/>PII · injection]
+        GW --> POL[Policy Engine]
+        GW --> RTR[Router v2<br/>registry · fallback]
+        GW --> TRC[(DecisionTraces)]
+        POL --> APQ[Approval Queue]
+        EVO[Evolution Engine] --> APQ
+        TRC --> EVO
+    end
+
+    RTR --> PROV[Providers<br/>mock · groq · openrouter<br/>gemini · openai · anthropic]
+    GW --> RAG[Tenant-isolated RAG<br/>pgvector]
+
+    GW --> WAB[Web Access Broker]
+    subgraph EXEC[Untrusted Execution Plane]
+        WAB --> HTTP[HTTP / RSS / GitHub<br/>Reddit / YouTube]
+        WAB --> MCPW[MCP Broker<br/>allowlist · budgets]
+        WAB --> BRW[Browser Worker<br/>cookie vault]
+        HTTP --> SAN[Sanitizer<br/>trust · injection · secrets]
+        MCPW --> SAN
+        BRW --> SAN
+        SAN --> WAB
+    end
+
+    TRC --> WK[Async Eval Worker<br/>SKIP LOCKED queue]
+    WK --> REV[Review Queue]
+    REV --> DS[Dataset Factory]
+    DS --> SIM[Simulator<br/>replay · canary verdicts]
+    SIM --> EVO
+```
+
+Design rule inherited from the spec: **visibility first**, then evaluation,
+grounding, safety, optimization, continuous improvement — and now
+self-improvement, gated by humans.
+
+## Platform matrix
+
+| Pillar | Capabilities | Status |
+|---|---|---|
+| **AI Gateway** | Unified `/v1/ai/complete`, API-key auth, tenant/app model, request normalization, cost + latency metering, error traces | ✅ shipped |
+| **Decision traces** | Full request/response/policy/routing/eval persistence, tenant-isolated `/v1/traces` | ✅ shipped |
+| **Async evaluation** | Postgres `FOR UPDATE SKIP LOCKED` queue, horizontally-scalable workers, heuristic evaluators | ✅ shipped |
+| **Grounded RAG** | pgvector, single-transaction ingestion, tenant isolation *before* distance calc, citations, poisoned-doc defense | ✅ shipped |
+| **Safety (Sentinel + policy)** | PII detect/redact, injection detection, output leak scans, policy-as-code preflight & output gates | ✅ shipped |
+| **Routing** | Model registry, explainable decisions, ordered fallback chains, cost guardrails | ✅ shipped |
+| **Quality loop** | Groundedness/hallucination scoring, review queue, feedback, dataset lineage (`v1 → v2`), traffic-replay simulator | ✅ shipped |
+| **Knowledge graph** | Typed entity extraction, dedup, `mentioned_in` provenance, traversal API | ✅ shipped |
+| **Terminal agent (TUI)** | GOVERNED/DIRECT modes, gateway catalog, `/models` discovery, web research, approvals, evolution | ✅ shipped |
+| **Web access — read path** | Broker, policy preflight, 6 adapters, sanitization, per-source failure honesty, audit jobs | ✅ shipped (W1) |
+| **MCP governance** | Server registration, trust lifecycle, tool filtering, budgets, version-drift detection | ✅ shipped (W2) |
+| **Browser sessions** | Encrypted vault, domain allowlists, event audit, approval-gated authenticated reads (read-only) | ✅ shipped (W3) |
+| **Actions & approvals** | Typed registry, payload-bound approvals, idempotent effect journal, scheduled research watches | ✅ shipped (W4) |
+| **Self-evolution** | Failure mining, clustering, typed proposals, human gate, versioned apply/rollback | ✅ shipped |
+| **Enterprise track** | Kafka/ClickHouse, OPA, Neo4j, SSO/OIDC + RBAC, SDKs, streaming, K8s | 🗺️ [roadmap](docs/YC27_TECHNICAL_CHECKLIST.md) |
+
+## 🚀 Quick start
+
+### Docker (Postgres + API + workers)
 
 ```bash
-docker compose up --build      # starts Postgres + the gateway
-make seed                      # prints a new API key
+docker compose up --build          # pgvector Postgres + API + eval worker
+make seed                          # prints a fresh API key
 KEY=<paste-key> make curl-complete
 ```
 
-## Quick start (local, no Postgres)
-
-The test suite and local dev can run on SQLite with zero external services:
+### Local (SQLite, zero services, zero API keys)
 
 ```bash
 export HELIOS_DATABASE_URL="sqlite:////tmp/helios.sqlite3"
@@ -135,252 +152,309 @@ curl -s -X POST http://localhost:8000/v1/ai/complete \
   -d '{"input": "Hello Project Helios"}'
 ```
 
-Interactive API docs: `http://localhost:8000/docs`
+Interactive API docs: `http://localhost:8000/docs` · Tests:
+`PYTHONPATH=src python -m pytest -q` → **83 passed in ~2s**, fully offline.
 
-## Using a free LLM provider
+## 🖥️ Terminal-first agent interface
 
-The gateway defaults to `mock`. To get real completions for free, grab a key
-from any provider below, put it in `.env` (copy from `.env.example`), and set
-the default provider — or pass `"provider"` per request.
-
-| Provider   | Free? | Get a key                              | Env var                     |
-|------------|-------|----------------------------------------|-----------------------------|
-| Groq       | yes   | https://console.groq.com/keys          | `HELIOS_GROQ_API_KEY`       |
-| OpenRouter | yes   | https://openrouter.ai/keys             | `HELIOS_OPENROUTER_API_KEY` |
-| Gemini     | yes   | https://aistudio.google.com/apikey     | `HELIOS_GEMINI_API_KEY`     |
-| OpenAI     | paid  | https://platform.openai.com            | `HELIOS_OPENAI_API_KEY`     |
-| Anthropic  | paid  | https://console.anthropic.com          | `HELIOS_ANTHROPIC_API_KEY`  |
-
-Per-request override:
-
-```json
-{ "input": "What is Helios?", "provider": "groq" }
-```
+A fast, agent-centric REPL — not an API administration panel. The governed
+route is always visibly marked **GOVERNED**; direct gateways are marked
+**DIRECT** so you know exactly when Helios governance is bypassed.
 
 ```bash
-HELIOS_DEFAULT_PROVIDER=groq   # or openrouter | gemini
+export HELIOS_API_KEY="<key from make seed>"
+PYTHONPATH=src python -m helios.tui --gateway helios     # or: make tui
 ```
 
-## Tests
+```text
+Helios — terminal agent interface
+Gateway helios [GOVERNED] — /help for commands
 
-```bash
-python -m pip install -r requirements-dev.txt
-PYTHONPATH=src python -m pytest -q
+helios:auto ❯ /web search complaints about product X
+Sources
+  ✓ reddit        ok · 12 results
+  ⚠ x             rate_limited · upstream 429
+  ✓ github        ok · 9 results
+Evidence
+  [1] Example discussion
+      reddit · untrusted_external_content · retrieved 2026-08-26T12:03
+job=9f2c…  · 21 documents
+
+helios:auto ❯ /evolve
+  a5a87be5  [routing_fallback] Demote provider 'unknown' after 3 failures
+           evidence: 3 traces
+
+helios:auto ❯ /evolve apply a5a87be5
+a5a87be5 -> applied (v1)
 ```
 
-Runs entirely on SQLite + the mock provider — no network, no Postgres.
-
-## Async evaluation (hot path vs cold path)
-
-The gateway is latency-sensitive (a user is waiting), so it does the minimum:
-authenticate → route → call model → persist trace → **enqueue an eval job** →
-return. Evaluation is throughput-sensitive and runs out-of-band in a worker.
-
-```
-POST /v1/ai/complete ──hot path──► DecisionTrace + EvaluationJob(pending) ──► 200 OK
-                                                │
-        evaluation_jobs (Postgres queue)        │ FOR UPDATE SKIP LOCKED
-                                                ▼
-                         helios.worker ──► EvaluationPipeline ──► trace.evaluation_scores
-```
-
-Run a worker locally (against the same DB as the API):
-
-```bash
-PYTHONPATH=src python -m helios.worker      # or: make worker
-```
-
-Under Docker Compose the `worker` service starts automatically and scales:
-
-```bash
-docker compose up --build --scale worker=3   # SKIP LOCKED => no double-processing
-```
-
-`SKIP LOCKED` gives us a concurrent, at-least-once job queue on the database we
-already run — no Kafka/Redis/Celery. It's the Outbox pattern we'll later back
-with Kafka, without the infrastructure today.
-
-## Knowledge retrieval (RAG)
-
-Vectors live in Postgres via **pgvector** — metadata and embeddings share one
-ACID transaction (no ghost vectors), and tenant isolation is a database-level
-`WHERE tenant_id = …` applied *before* the distance calculation. The Compose
-`db` image is `pgvector/pgvector:pg16` (stock `postgres:16` lacks the
-extension); `init_db()` runs `CREATE EXTENSION IF NOT EXISTS vector`.
-
-```bash
-# 1. Ingest a document (chunked ~500 chars with 50 overlap, embedded, stored)
-curl -s -X POST http://localhost:8000/v1/knowledge/documents \
-  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"title": "Refund Policy", "content": "Enterprise customers may request refunds within 30 days..."}'
-
-# 2. Grounded completion with citations
-curl -s -X POST http://localhost:8000/v1/ai/complete \
-  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"input": "What is the refund window?", "use_knowledge_base": true}'
-```
-
-Embeddings are provider-abstracted like LLMs: `mock` (default, deterministic
-hashed bag-of-words — no network), `gemini` (free tier, set
-`HELIOS_EMBEDDING_DIM=768`), or `openai`. On non-Postgres databases (the test
-suite's SQLite) retrieval transparently falls back to Python cosine similarity
-over the tenant's chunks; Postgres + `<=>` is the production path.
-
-## Layout
-
-```
-src/helios/
-  main.py            FastAPI app + startup
-  config.py          Settings (HELIOS_* env vars)
-  db.py              SQLAlchemy engine/session
-  models.py          Tenant, Application, ApiKey, DecisionTrace, EvaluationJob
-  schemas.py         Request/response/trace Pydantic models
-  security.py        API-key auth dependency
-  normalization.py   Request -> internal schema
-  cost.py            Token-usage -> USD (free tiers = $0)
-  cli.py             `create-api-key`, `gateway-add`, `gateway-list`
-  worker.py          Cold-path evaluation worker (SKIP LOCKED queue)
-  chunking.py        Overlapping character chunker
-  retrieval.py       Tenant-isolated vector search (pgvector / Python fallback)
-  gateways.py        Gateway catalog (built-in + custom profiles, /models discovery)
-  tui/               Terminal agent interface (GOVERNED / DIRECT modes)
-  routes/            health, completions, traces, knowledge
-  providers/         base, mock, openai_compatible, gemini, anthropic + router
-  evaluators/        base, heuristics (empty/latency/refusal), pipeline
-  embeddings/        base, mock (hashed BoW), live (gemini/openai)
-```
-
-## Measured results
-
-Every number below was observed on this codebase — from the test suite or a
-live end-to-end run of the spec's §24 scenario (ingest refund policy → ask a
-grounded question → block a PII request → evaluate → review → dataset →
-simulate). No projections.
-
-| Metric | Measured |
+| Command group | Commands |
 |---|---|
-| Test suite | **52/52 passing in ~2s**, zero external services (SQLite + mock providers) |
-| Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
-| Groundedness on the §24 refund query | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
-| Retrieval ranking | relevant doc scored **0.344** vs **0.000** for the irrelevant doc (cosine, top-k=3) |
-| Cross-tenant isolation | **0 leaks** — tenant B retrieving tenant A's "secret" doc: blocked at the query layer, covered by a dedicated test |
-| Policy enforcement | high-risk PII request → **HTTP 403** with persisted `status=blocked` trace; low-risk PII → allowed + flagged + redacted before external providers |
-| Poisoned-document defense | retrieved chunks containing injection patterns are dropped before prompt assembly (tested) |
-| Knowledge graph | **5 typed entities** extracted from one policy doc (Policy/Term), deduplicated across documents, each with `mentioned_in` provenance |
-| Feedback loop | thumbs-down → review-queue item **in the same request**; blocked/failed traces → versioned dataset (`failure-cases:v1 → v2` lineage verified) |
-| Simulator | replayed production traces through a candidate, same eval pipeline; report: baseline vs candidate failure rate + `canary_1_percent` / `do_not_deploy` recommendation |
-| Fallback routing | provider failure → next candidate in chain; every attempt recorded on the trace (tested via unsupported-provider path) |
-| Footprint | **~4.5k LOC** src + **~1.1k LOC** tests, **16 API endpoints**, 2 deployable processes (api + worker) + a terminal UI, 1 database |
+| Session | `/help` `/status` `/clear` `/quit` |
+| Models & gateways | `/gateway` `/connect` `/model` `/models` `/refresh` |
+| Web research | `/web sources` `/web status` `/web search` `/web read` `/web transcript` |
+| Governance | `/approvals` `/approve <id>` `/deny <id>` |
+| Self-evolution | `/evolve` `/evolve list` `/evolve apply <id>` |
 
-## Intentional MVP tradeoffs
+Every governed turn prints its `trace_id`, model, cost, latency, and citation
+count. `Ctrl+K` focuses the prompt, `Ctrl+L` clears the screen, `Ctrl+C` exits.
 
-- **No Kafka/ClickHouse** — the async eval queue is Postgres
-  `FOR UPDATE SKIP LOCKED`. Migrate to Kafka only when event throughput
-  exceeds single-node Postgres limits; the `TraceSink`-shaped worker boundary
-  makes that a swap, not a rewrite.
-- **No Alembic migrations** — uses SQLAlchemy `create_all`. Move to Alembic
-  before any production schema change.
-- **Placeholder pricing** — real dynamic pricing belongs in a centralized
-  control-plane model registry (enterprise track); free tiers are metered $0.
-- **Heuristic extraction & evaluation** — the knowledge-graph extractor,
-  groundedness scorer, and PII/injection detectors are deterministic
-  regex/overlap heuristics. The enterprise track swaps in NER/LLM-as-judge
-  behind the same `BaseEvaluator`/`extract_entities` interfaces.
-- **No rate limiting yet** — quotas/budgets per tenant exist only as the
-  per-request `max_cost_usd` guardrail in the router.
+## 🔌 Universal gateway connectivity
 
-## Spec coverage & enterprise track
+A data-driven catalog of **26 gateways** — hosted providers, aggregators,
+enterprise gateways, and local runtimes — plus unlimited custom profiles.
+When a gateway exposes `GET /models`, `/refresh` discovers its live model
+list instead of trusting a hard-coded one.
 
-All seven pillars of the Helios spec now have working walking-skeleton slices:
-gateway+traces, evaluation, retrieval+grounding, hallucination detection,
-routing, simulation, and the dataset factory — plus policy-as-code, a human
-review queue, and a knowledge-graph MVP.
+| | |
+|---|---|
+| **Hosted** | OpenAI · OpenRouter · Groq · Together · Fireworks · DeepInfra · Hyperbolic · NVIDIA · Cerebras · SambaNova · DeepSeek · Mistral · xAI · Cohere · Perplexity · Hugging Face · Cloudflare |
+| **Aggregators** | LiteLLM · Portkey |
+| **Local** | Ollama · LM Studio · vLLM · llama.cpp · SGLang · LocalAI |
+| **Governed** | `helios` — the default; traces, policy, routing, evaluation preserved |
 
-Deliberately **not** built at this scale (the enterprise track, in spec order):
-Kafka/ClickHouse event streaming, OPA policy engine, Neo4j graph store,
-Kubernetes/Helm/multi-region deployment, SSO/OIDC + full RBAC, streaming
-responses with eval hooks, semantic caching, LLM-as-judge evaluators, Label
-Studio-grade annotation UI, dashboards (Grafana/OTel), SDKs, and the
-fine-tuning platform. Each slots in behind an existing interface (TraceSink,
-BaseEvaluator, policy engine, provider/embedding adapters) without rewrites.
-
-## Terminal-first agent interface
-
-Helios includes a terminal UI designed for fast, agent-centric work rather
-than API administration. It keeps the governed Helios path as the default —
-prompts still produce traces and pass through policy, routing, and
-evaluation — and it is always labeled: the governed route shows **GOVERNED**,
-direct custom-gateway mode shows **DIRECT** so you know when Helios
-governance is bypassed. Local and custom OpenAI-compatible gateways can also
-be selected for development and model experimentation.
-
-Install dependencies and launch the TUI:
-
-```bash
-python -m pip install -r requirements-dev.txt
-export HELIOS_API_KEY="<key created with make seed>"
-PYTHONPATH=src python -m helios.tui --gateway helios
-# or: make tui GATEWAY=helios
-```
-
-The TUI supports `/help`, `/gateway`, `/connect`, `/model`, `/models`,
-`/refresh`, `/status`, `/clear`, and `/quit`. Use `Ctrl+K` to focus the
-prompt, `Ctrl+L` to clear the screen, and `Ctrl+C` to exit. Every governed
-turn prints its `trace_id`, model, cost, latency, and citation count.
-
-## Built-in and custom gateways
-
-Helios ships a data-driven catalog covering major hosted providers,
-aggregators, enterprise gateways, and local OpenAI-compatible servers. The
-seed catalog includes OpenAI, OpenRouter, Groq, Together, Fireworks,
-DeepInfra, Hyperbolic, NVIDIA, Cerebras, SambaNova, DeepSeek, Mistral, xAI,
-Cohere, Perplexity, Hugging Face, Cloudflare, Ollama, LM Studio, vLLM,
-llama.cpp, SGLang, LocalAI, LiteLLM, and Portkey. The catalog is
-deliberately extensible: when a gateway exposes `GET /models`, `/refresh`
-discovers its current models instead of depending on a hard-coded model
-list.
-
-Credentials are never written to the gateway profile. Save only the
-environment-variable name:
+Custom gateways store **only the environment-variable name** of a credential —
+`gateway-add` rejects anything that looks like a raw secret:
 
 ```bash
 PYTHONPATH=src python -m helios.cli gateway-add my-gateway \
   --base-url https://gateway.example.com/v1 \
-  --provider custom \
-  --api-key-env MY_GATEWAY_API_KEY \
-  --model my-model
+  --api-key-env MY_GATEWAY_API_KEY --model my-model
 
-export MY_GATEWAY_API_KEY="<secret>"
 PYTHONPATH=src python -m helios.cli gateway-list
 PYTHONPATH=src python -m helios.tui --gateway my-gateway
 ```
 
-For a local server that does not require authentication:
+Free-tier providers for real completions: [Groq](https://console.groq.com/keys)
+(`HELIOS_GROQ_API_KEY`), [OpenRouter](https://openrouter.ai/keys)
+(`HELIOS_OPENROUTER_API_KEY`), [Gemini](https://aistudio.google.com/apikey)
+(`HELIOS_GEMINI_API_KEY`) — free tiers are metered at $0.00. The `mock`
+provider needs nothing at all.
+
+## 🌐 Governed web access
+
+> **Core rule: web content is data, never authority.** A page, transcript,
+> post, tool description, or MCP response must never change Helios policy,
+> credentials, or tool permissions.
+
+Every web operation flows through the **Web Access Broker**:
+policy preflight → adapter fallback chain → sanitization → normalized
+documents with provenance → tenant-scoped `WebAccessJob` audit records.
 
 ```bash
-PYTHONPATH=src python -m helios.cli gateway-add ollama-local \
-  --base-url http://localhost:11434/v1 \
-  --provider ollama \
-  --model llama3.2
+curl -s -X POST http://localhost:8000/v1/web/search \
+  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"query": "complaints about product X"}'
 ```
 
-The direct gateway mode uses the standard OpenAI Chat Completions contract.
-The governed `helios` mode uses `/v1/ai/complete` and preserves Helios
-traces, policy checks, and routing. This split makes the TUI useful for both
-production governance and local provider exploration while keeping the
-enterprise path explicit. Custom profiles are stored as JSON
-(`~/.helios/gateways.json`, override with `HELIOS_GATEWAYS_PATH`) and
-`gateway-add` refuses anything that looks like a raw credential.
+| Control | Enforcement (all tested) |
+|---|---|
+| Trust labeling | Every document is forced to `untrusted_external_content` — adapters cannot upgrade trust |
+| Injection quarantine | Sentinel patterns scan pages/transcripts/posts/MCP results; poisoned content is withheld |
+| Secret scrubbing | API keys, bearer tokens, cookies, JWTs are redacted before return or persistence |
+| Read/write separation | Write ops (post/send/delete/like/follow/purchase) are refused without approval |
+| Domain policy | Reads restricted to an allowlist; unknown domains blocked with an explicit reason |
+| Failure honesty | Rate-limited sources reported as such; fallbacks visible; retrieval never fabricated |
+| Optional connectors | Agent-Reach (MCP) & SocialCrawl report `unconfigured` honestly; MCP tools allowlisted |
 
-## YC-scale product direction
+Adapters: public HTTP/RSS reader · GitHub (typed API ops, no shell) · Reddit ·
+YouTube transcripts (public captions, no `yt-dlp` shell) · Agent-Reach ·
+SocialCrawl. Full design: [docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md).
 
-The terminal UI is the first product surface for a YC-scale Helios: fast
-like a coding agent, portable across models and gateways, and differentiated
-by governed execution. The next product milestones are streaming responses,
-tool calls, durable sessions, agent manifests, approvals, MCP connectivity,
-OpenTelemetry ingestion, and a release gate that combines policy and
-evaluation results before an agent can be promoted.
+### MCP governance (Phase W2)
 
-The full technical roadmap — P0→P2 priorities, acceptance tests, build
-order, and the minimum genuinely competitive feature set — lives in
-[docs/YC27_TECHNICAL_CHECKLIST.md](docs/YC27_TECHNICAL_CHECKLIST.md).
+Arbitrary MCP servers never run inside the API process. Registered servers
+start **untrusted** and are unusable until a human approves them; every call
+is tool-filtered, argument-validated, budgeted (calls/bytes/timeout), and
+sanitized. The version pinned at registration is checked at health time —
+drift marks the server degraded instead of silently changing tool behavior.
+
+```text
+POST /v1/mcp/servers            register (starts untrusted)
+POST /v1/mcp/servers/{id}/trust approve | revoke
+GET  /v1/mcp/servers/{id}/health  reachability + version drift
+POST /v1/mcp/call               governed tool call → sanitized document
+```
+
+### Browser sessions (Phase W3, read-only)
+
+Cookies live **only** in an encrypted session vault (`HELIOS_SESSION_VAULT_KEY`,
+fail-closed — no key, no sessions). The worker decrypts them per request,
+attaches them to the outbound call, and they never appear in responses,
+events, traces, or prompts. Fresh context is the default; authenticated reads
+additionally require an approval bound to the exact `(url, session)` payload.
+Every navigation emits `navigate` / `read` / `blocked` audit events.
+
+## ✅ Agent actions, approvals, and idempotency
+
+Phase W4 makes writing to the outside world a **typed, human-gated, exactly-once**
+operation:
+
+```text
+propose  →  POST /v1/actions/propose     typed action + args → approval request
+approve  →  POST /v1/approvals/{id}/decide   human decision, recorded
+execute  →  POST /v1/actions/execute     approval-bound + idempotency key
+```
+
+- **Typed registry** — only registered actions (`github_open_issue`,
+  `webhook_notify`, `browser_read_authenticated`) can ever execute; a
+  model-generated arbitrary payload cannot become an action.
+- **Payload binding** — approvals bind to `sha256(action + args)`; approving
+  one payload does not authorize a different one (changing even one argument
+  re-requires approval).
+- **Effect journal** — every execution writes an `ActionEffect` keyed by
+  idempotency key. A retry **replays** the recorded effect; it never
+  re-executes. No duplicate tickets, commits, posts, or messages.
+- **Scheduled research** — recurring watches (`/v1/schedules`) search through
+  the governed broker, diff content hashes against the previous run, and
+  report `change_detected` — they observe and report, never write. The worker
+  runs due schedules automatically.
+
+## 🧬 Self-evolving agents
+
+Helios agents improve themselves from production evidence — but only through
+a governed gate. **Proposals never self-approve.**
+
+```mermaid
+flowchart LR
+    T[(DecisionTraces)] --> M[1 · Mine<br/>failures, blocks,<br/>low scores, 👎]
+    M --> C[2 · Cluster<br/>failure signatures]
+    C --> P[3 · Propose<br/>typed changes + evidence]
+    P --> H{4 · Human gate}
+    H -- approve --> A[5 · Apply<br/>versioned]
+    H -- reject --> X[rejected]
+    A --> S[Live evolution state<br/>consumed by router/policy/evals]
+    A -. rollback .-> S
+```
+
+The engine classifies recent traces into failure signatures — provider
+errors, refusals, empty outputs, latency breaches, hallucination risk,
+policy blocks, negative feedback — and emits **typed proposals** with the
+evidence attached (occurrence counts, trace IDs, share of recent traffic):
+
+| Signature | Proposal kind | Example |
+|---|---|---|
+| `provider_error:groq` | `routing_fallback` | *Demote provider 'groq' after 7 failures* |
+| `refusal` | `evaluator_pattern` | *Generate refusal patterns from observed outputs* |
+| `hallucination_risk` | `policy_rule` | *Require KB grounding for answer-style tasks* |
+| `latency_breach` | `routing_fallback` | *Prefer lower-latency route after SLA breaches* |
+| `negative_feedback` | `prompt_hint` | *Prefer cited, source-grounded answers* |
+
+Applying is versioned with the previous state captured — one call rolls it
+back. Re-analysis dedupes against open proposals, so the loop converges
+instead of spamming. Drive it from the TUI (`/evolve`, `/evolve apply <id>`)
+or the API (`/v1/evolution/*`).
+
+## 📚 Knowledge & evaluation loop
+
+**Tenant-isolated RAG** on pgvector: ingestion chunks, embeds, and stores in
+one ACID transaction (no ghost vectors); isolation is a database-level
+`WHERE tenant_id = …` applied *before* the distance calculation. Retrieved
+chunks are injected as numbered context with `citations` returned; poisoned
+chunks are dropped before prompt assembly. SQLite tests use a transparent
+Python cosine fallback.
+
+**Hot path / cold path**: the gateway persists the trace, enqueues an
+`EvaluationJob`, and returns (~2 ms overhead). Workers claim jobs with
+`FOR UPDATE SKIP LOCKED` — a concurrent, at-least-once queue on the database
+you already run (`docker compose up --scale worker=3`). Failed evaluators and
+high hallucination risk auto-escalate to the human review queue; thumbs-down
+feedback escalates in the same request; blocked/failed traces mine into
+versioned datasets (`failure-cases:v1 → v2`) and replay through the simulator
+for canary / do-not-deploy verdicts.
+
+## 🛡️ Security model
+
+| Layer | Control |
+|---|---|
+| Identity | Hashed API keys, tenant/application scoping on every query |
+| Input | PII detection; high-risk PII blocked (403 + persisted `status=blocked` trace); redaction before external providers |
+| Retrieval | Tenant isolation at the SQL layer; injection-poisoned documents dropped |
+| Web | Trust labeling, injection quarantine, secret scrubbing, domain allowlists, volume caps |
+| MCP | Trust lifecycle, tool allowlists, argument validation, budgets, version pinning |
+| Browser | Encrypted cookie vault (fail-closed), per-session domain allowlists, cookie non-exposure, event audit |
+| Actions | Typed registry, payload-hash-bound approvals, idempotent effect journal |
+| Output | Leak scanning; citations required for high-risk answers |
+| Evolution | Human-only apply gate, versioned state, one-call rollback |
+| Credentials | Environment-variable references everywhere; raw secrets rejected at every input path |
+
+## 📊 Measured results
+
+Every number observed on this codebase — test suite or live end-to-end runs.
+No projections.
+
+| Metric | Measured |
+|---|---|
+| Test suite | **83/83 passing in ~2s**, zero external services (SQLite + mock providers) |
+| Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
+| Groundedness (spec §24 refund query) | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
+| Retrieval ranking | relevant doc **0.344** vs **0.000** irrelevant (cosine, top-k=3) |
+| Cross-tenant isolation | **0 leaks** — blocked at the query layer, dedicated test |
+| Policy enforcement | high-risk PII → **403** with persisted blocked trace; low-risk → flagged + redacted |
+| Web access controls | trust forcing, injection quarantine, secret scrubbing, write refusal, domain blocks, rate-limit honesty — each with a dedicated test |
+| MCP governance | untrusted-server refusal, tool allowlist, budget exhaustion, version drift — all tested |
+| Cookie isolation | cookie reaches the outbound request in-worker, **never** the document/events/response (tested + live) |
+| Idempotency | same key → `replayed: true`, zero re-execution; changed args → re-approval required (tested) |
+| Self-evolution | 3 provider failures → mined proposal → TUI apply → live routing override → rollback (tested + live) |
+| Simulator | replayed traffic vs candidate; `canary_1_percent` / `do_not_deploy` verdicts |
+| Footprint | **~7.7k LOC** src + **~1.8k LOC** tests, **44 API endpoints**, 2 processes (api + worker) + TUI, 1 database |
+
+## 🗂️ Project structure
+
+```
+src/helios/
+  main.py             FastAPI app + startup          gateways.py   26-gateway catalog + custom profiles
+  config.py           HELIOS_* settings              evolution.py  self-evolution engine
+  models.py           20 SQLAlchemy models           worker.py     eval worker + scheduled research
+  security.py         API-key auth                   cli.py        create-api-key, gateway-add/list
+  sentinel.py         PII + injection detection      policy.py     policy-as-code gates
+  registry.py         model registry + router        retrieval.py  tenant-isolated vector search
+  tui/                terminal agent (GOVERNED/DIRECT, /web, /approvals, /evolve)
+  web/                broker, policy, sanitizer, vault, browser worker, MCP broker, actions
+    adapters/         http/rss, github, reddit, youtube, agent-reach, socialcrawl
+  routes/             completions, traces, knowledge, review, datasets, simulations,
+                      web, mcp, browser, actions, evolution, health
+  providers/          mock, openai_compatible, gemini, anthropic + router
+  evaluators/         empty-output, latency-SLA, refusal, groundedness pipeline
+  embeddings/         mock (hashed BoW), gemini, openai
+tests/                83 tests, fully offline
+docs/                 architecture docs + technical roadmap
+```
+
+## ⚖️ Intentional tradeoffs
+
+Honest engineering notes, not fine print:
+
+- **Postgres over Kafka/ClickHouse** — `FOR UPDATE SKIP LOCKED` is the queue
+  until throughput demands more; the worker boundary makes migration a swap,
+  not a rewrite.
+- **`create_all` over Alembic** — move to migrations before any production
+  schema change.
+- **Heuristic evaluators/extractors** — deterministic regex/overlap scoring
+  today; LLM-as-judge slots in behind the same `BaseEvaluator` interface.
+- **Inert action executors** — the OSS MVP prepares actions (typed, approved,
+  idempotent, audited); real side-effect connectors (GitHub App, webhooks)
+  are the enterprise track behind the same registry.
+- **In-process browser/MCP workers** — the isolation *contract* (vault,
+  allowlists, events, budgets) is real and tested; container/microVM
+  isolation is deployment work, not redesign.
+- **MVP vault crypto** — HMAC-derived keystream + integrity tag, keyed from
+  env; swaps for KMS envelope encryption behind the same two functions.
+
+## 📖 Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md) | The full web-access design: planes, adapters, worker isolation, secrets, phased rollout (W1–W4) |
+| [docs/helios-web-access.mmd](docs/helios-web-access.mmd) | Editable Mermaid source for the web-access system diagram |
+| [docs/YC27_TECHNICAL_CHECKLIST.md](docs/YC27_TECHNICAL_CHECKLIST.md) | The complete technical roadmap: P0–P2 priorities, acceptance tests, build order, the minimum competitive 15 |
+
+---
+
+<div align="center">
+
+<img src="assets/helios-logo.svg" alt="Helios" width="96">
+
+**Helios** — every action traced · every risk gated · every failure learned from
+
+</div>
