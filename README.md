@@ -7,7 +7,7 @@
 <p align="center">
   <img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-42_passing-FFD166?style=flat-square">
+  <img alt="Tests" src="https://img.shields.io/badge/tests-52_passing-FFD166?style=flat-square">
   <img alt="Status" src="https://img.shields.io/badge/status-stable-FFD166?style=flat-square">
 </p>
 
@@ -42,6 +42,10 @@ enterprise subsystem hangs off of.
 - [Measured results](#measured-results)
 - [Intentional MVP tradeoffs](#intentional-mvp-tradeoffs)
 - [Spec coverage & enterprise track](#spec-coverage--enterprise-track)
+- [Terminal-first agent interface](#terminal-first-agent-interface)
+- [Built-in and custom gateways](#built-in-and-custom-gateways)
+- [YC-scale product direction](#yc-scale-product-direction)
+- [YC27 technical checklist](docs/YC27_TECHNICAL_CHECKLIST.md)
 
 ## What's inside
 
@@ -100,6 +104,11 @@ enterprise subsystem hangs off of.
   (typed: Policy/Service/Product/Incident/Term) with `mentioned_in`
   provenance relationships, entity dedup across documents, and traversal
   endpoints (`/v1/knowledge/entities`, `/v1/knowledge/entities/{id}/documents`).
+- **Terminal agent interface (TUI)** — `python -m helios.tui`: a
+  terminal-first REPL over the governed Helios path (marked **GOVERNED**) or
+  any OpenAI-compatible gateway (marked **DIRECT**), with a data-driven
+  gateway catalog, custom gateway profiles (`gateway-add`/`gateway-list`,
+  no secrets stored), and dynamic `/models` discovery.
 
 ## Quick start (Docker)
 
@@ -229,10 +238,12 @@ src/helios/
   security.py        API-key auth dependency
   normalization.py   Request -> internal schema
   cost.py            Token-usage -> USD (free tiers = $0)
-  cli.py             `create-api-key`
+  cli.py             `create-api-key`, `gateway-add`, `gateway-list`
   worker.py          Cold-path evaluation worker (SKIP LOCKED queue)
   chunking.py        Overlapping character chunker
   retrieval.py       Tenant-isolated vector search (pgvector / Python fallback)
+  gateways.py        Gateway catalog (built-in + custom profiles, /models discovery)
+  tui/               Terminal agent interface (GOVERNED / DIRECT modes)
   routes/            health, completions, traces, knowledge
   providers/         base, mock, openai_compatible, gemini, anthropic + router
   evaluators/        base, heuristics (empty/latency/refusal), pipeline
@@ -248,7 +259,7 @@ simulate). No projections.
 
 | Metric | Measured |
 |---|---|
-| Test suite | **42/42 passing in ~2s**, zero external services (SQLite + mock providers) |
+| Test suite | **52/52 passing in ~2s**, zero external services (SQLite + mock providers) |
 | Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
 | Groundedness on the §24 refund query | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
 | Retrieval ranking | relevant doc scored **0.344** vs **0.000** for the irrelevant doc (cosine, top-k=3) |
@@ -259,7 +270,7 @@ simulate). No projections.
 | Feedback loop | thumbs-down → review-queue item **in the same request**; blocked/failed traces → versioned dataset (`failure-cases:v1 → v2` lineage verified) |
 | Simulator | replayed production traces through a candidate, same eval pipeline; report: baseline vs candidate failure rate + `canary_1_percent` / `do_not_deploy` recommendation |
 | Fallback routing | provider failure → next candidate in chain; every attempt recorded on the trace (tested via unsupported-provider path) |
-| Footprint | **~3.8k LOC** src + **~0.9k LOC** tests, **16 API endpoints**, 2 deployable processes (api + worker), 1 database |
+| Footprint | **~4.5k LOC** src + **~1.1k LOC** tests, **16 API endpoints**, 2 deployable processes (api + worker) + a terminal UI, 1 database |
 
 ## Intentional MVP tradeoffs
 
@@ -292,3 +303,84 @@ responses with eval hooks, semantic caching, LLM-as-judge evaluators, Label
 Studio-grade annotation UI, dashboards (Grafana/OTel), SDKs, and the
 fine-tuning platform. Each slots in behind an existing interface (TraceSink,
 BaseEvaluator, policy engine, provider/embedding adapters) without rewrites.
+
+## Terminal-first agent interface
+
+Helios includes a terminal UI designed for fast, agent-centric work rather
+than API administration. It keeps the governed Helios path as the default —
+prompts still produce traces and pass through policy, routing, and
+evaluation — and it is always labeled: the governed route shows **GOVERNED**,
+direct custom-gateway mode shows **DIRECT** so you know when Helios
+governance is bypassed. Local and custom OpenAI-compatible gateways can also
+be selected for development and model experimentation.
+
+Install dependencies and launch the TUI:
+
+```bash
+python -m pip install -r requirements-dev.txt
+export HELIOS_API_KEY="<key created with make seed>"
+PYTHONPATH=src python -m helios.tui --gateway helios
+# or: make tui GATEWAY=helios
+```
+
+The TUI supports `/help`, `/gateway`, `/connect`, `/model`, `/models`,
+`/refresh`, `/status`, `/clear`, and `/quit`. Use `Ctrl+K` to focus the
+prompt, `Ctrl+L` to clear the screen, and `Ctrl+C` to exit. Every governed
+turn prints its `trace_id`, model, cost, latency, and citation count.
+
+## Built-in and custom gateways
+
+Helios ships a data-driven catalog covering major hosted providers,
+aggregators, enterprise gateways, and local OpenAI-compatible servers. The
+seed catalog includes OpenAI, OpenRouter, Groq, Together, Fireworks,
+DeepInfra, Hyperbolic, NVIDIA, Cerebras, SambaNova, DeepSeek, Mistral, xAI,
+Cohere, Perplexity, Hugging Face, Cloudflare, Ollama, LM Studio, vLLM,
+llama.cpp, SGLang, LocalAI, LiteLLM, and Portkey. The catalog is
+deliberately extensible: when a gateway exposes `GET /models`, `/refresh`
+discovers its current models instead of depending on a hard-coded model
+list.
+
+Credentials are never written to the gateway profile. Save only the
+environment-variable name:
+
+```bash
+PYTHONPATH=src python -m helios.cli gateway-add my-gateway \
+  --base-url https://gateway.example.com/v1 \
+  --provider custom \
+  --api-key-env MY_GATEWAY_API_KEY \
+  --model my-model
+
+export MY_GATEWAY_API_KEY="<secret>"
+PYTHONPATH=src python -m helios.cli gateway-list
+PYTHONPATH=src python -m helios.tui --gateway my-gateway
+```
+
+For a local server that does not require authentication:
+
+```bash
+PYTHONPATH=src python -m helios.cli gateway-add ollama-local \
+  --base-url http://localhost:11434/v1 \
+  --provider ollama \
+  --model llama3.2
+```
+
+The direct gateway mode uses the standard OpenAI Chat Completions contract.
+The governed `helios` mode uses `/v1/ai/complete` and preserves Helios
+traces, policy checks, and routing. This split makes the TUI useful for both
+production governance and local provider exploration while keeping the
+enterprise path explicit. Custom profiles are stored as JSON
+(`~/.helios/gateways.json`, override with `HELIOS_GATEWAYS_PATH`) and
+`gateway-add` refuses anything that looks like a raw credential.
+
+## YC-scale product direction
+
+The terminal UI is the first product surface for a YC-scale Helios: fast
+like a coding agent, portable across models and gateways, and differentiated
+by governed execution. The next product milestones are streaming responses,
+tool calls, durable sessions, agent manifests, approvals, MCP connectivity,
+OpenTelemetry ingestion, and a release gate that combines policy and
+evaluation results before an agent can be promoted.
+
+The full technical roadmap — P0→P2 priorities, acceptance tests, build
+order, and the minimum genuinely competitive feature set — lives in
+[docs/YC27_TECHNICAL_CHECKLIST.md](docs/YC27_TECHNICAL_CHECKLIST.md).
