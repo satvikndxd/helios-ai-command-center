@@ -1,0 +1,79 @@
+flowchart LR
+    U[Developer] --> T[Helios TUI]
+    T --> C[Agent Session Client]
+    C --> OR[Agent Orchestrator]
+
+    subgraph CONTROL[Helios Control Plane]
+      OR --> TR[Tool and Source Registry]
+      OR --> PE[Policy Engine]
+      OR --> SM[Secret Broker]
+      OR --> RR[Model Router]
+      PE --> AQ[Approval Queue]
+      OR --> TS[Trace and Event Sink]
+      RR --> TS
+      PE --> TS
+    end
+
+    OR --> WB[Web Access Broker]
+    WB --> PE
+    WB --> TS
+
+    subgraph EXEC[Untrusted Web Execution Plane]
+      BR[Browser Worker]
+      MC[MCP Worker]
+      HT[HTTP and Reader Worker]
+      CL[CLI Adapter Worker]
+      PR[User Browser Session Worker]
+      SAN[Content Sanitizer]
+      BR --> SAN
+      MC --> SAN
+      HT --> SAN
+      CL --> SAN
+      PR --> SAN
+    end
+
+    WB --> BR
+    WB --> MC
+    WB --> HT
+    WB --> CL
+    WB --> PR
+    SAN --> WB
+
+    subgraph SOURCES[External Sources]
+      WEB[Public Web]
+      YT[YouTube]
+      RE[Reddit]
+      X[X and Social Platforms]
+      GH[GitHub]
+      SC[SocialCrawl]
+      AR[Agent-Reach]
+      CUSTOM[Custom MCP or API]
+    end
+
+    BR --> WEB
+    MC --> AR
+    MC --> SC
+    MC --> CUSTOM
+    HT --> YT
+    HT --> RE
+    HT --> GH
+    CL --> YT
+    CL --> GH
+    CL --> RE
+    PR --> X
+
+    TS --> DB[(Postgres Control and Trace Metadata)]
+    TS --> OBJ[(Object Storage for Pages and Artifacts)]
+    TS --> AN[(Analytics Store)]
+    DB --> EV[Evaluation and Replay]
+    OBJ --> EV
+    AN --> EV
+    EV --> DS[Review, Datasets, Canary, Rollback]
+    DS --> OR
+
+    classDef control fill:#102a43,stroke:#5bc0eb,color:#ffffff;
+    classDef untrusted fill:#3d1f2b,stroke:#ff7b9c,color:#ffffff;
+    classDef data fill:#263238,stroke:#9ccc65,color:#ffffff;
+    class U,T,C,OR,TR,PE,SM,RR,AQ,TS,WB,EV,DS control;
+    class BR,MC,HT,CL,PR,SAN,WEB,YT,RE,X,GH,SC,AR,CUSTOM untrusted;
+    class DB,OBJ,AN data;

@@ -5,13 +5,18 @@ from fastapi import FastAPI
 from helios.config import settings
 from helios.db import init_db
 from helios.routes import (
+    actions,
+    browser,
     completions,
     datasets,
+    evolution,
     health,
     knowledge,
+    mcp,
     review,
     simulations,
     traces,
+    web,
 )
 
 
@@ -38,6 +43,11 @@ app.include_router(knowledge.router)
 app.include_router(review.router)
 app.include_router(datasets.router)
 app.include_router(simulations.router)
+app.include_router(web.router)
+app.include_router(mcp.router)
+app.include_router(browser.router)
+app.include_router(actions.router)
+app.include_router(evolution.router)
 
 
 @app.get("/")

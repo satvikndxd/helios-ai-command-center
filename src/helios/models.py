@@ -539,3 +539,216 @@ class Relationship(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class WebAccessJob(Base):
+    """
+    One broker dispatch through the web access plane (Phase W1).
+
+    Persists the sanitized request, the adapter fallback chain with
+    per-source status (failure honesty), the policy decision, and metadata
+    of the returned documents (URL, title, content hash, warnings) — never
+    raw cookies, credentials, or oversized payloads.  Large artifacts
+    belong in object storage (enterprise track).
+    """
+
+    __tablename__ = "web_access_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    operation: Mapped[str] = mapped_column(String(20), nullable=False)
+    request: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="completed")
+    policy_decision: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    source_status: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    # Document metadata only: url/title/hash/adapter/warnings — not raw bodies.
+    documents_meta: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# --- Web access phases 2-4 + self-evolution ---------------------------------
+
+
+class McpServer(Base):
+    """
+    A registered MCP server (Phase W2).
+
+    Servers register as trust_status='untrusted' and must be explicitly
+    approved before the broker will call them.  The version recorded at
+    registration is pinned: a differing version at health-check time marks
+    the server degraded (version drift) instead of silently changing tool
+    behavior.
+    """
+
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(500), nullable=False)
+    transport: Mapped[str] = mapped_column(String(20), nullable=False, default="http")
+    pinned_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    trust_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="untrusted"
+    )  # untrusted | approved | revoked
+    tool_allowlist: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    # Per-dispatch budgets: {"max_calls": int, "max_bytes": int, "timeout_s": float}
+    budgets: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    token_env: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BrowserSession(Base):
+    """
+    A user-connected browser session (Phase W3).
+
+    Cookies are stored ONLY as an encrypted blob in the session vault; the
+    raw material never appears in API responses, traces, or prompts.
+    """
+
+    __tablename__ = "browser_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    domain_allowlist: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    encrypted_profile: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ApprovalRequest(Base):
+    """
+    A pending human approval for a risky action (Phase W4).
+
+    The approval is bound to the exact action + args hash: approving one
+    payload does not authorize a different one.
+    """
+
+    __tablename__ = "approval_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    summary: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    risk: Mapped[str] = mapped_column(String(20), nullable=False, default="high")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pending"
+    )  # pending | approved | denied | expired
+    decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ActionEffect(Base):
+    """
+    Effect journal (Phase W4): one row per idempotency key.
+
+    A retry with the same key returns the recorded effect instead of
+    executing again — no duplicate tickets, commits, posts, or messages.
+    """
+
+    __tablename__ = "action_effects"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    args_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    approval_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("approval_requests.id"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="executed")
+    result: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ScheduledResearch(Base):
+    """
+    A recurring research watch (Phase W4): search -> diff vs last content
+    hashes -> report on change.  It observes; it never writes externally.
+    """
+
+    __tablename__ = "scheduled_research"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    query: Mapped[str] = mapped_column(String(500), nullable=False)
+    sources: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    last_content_hashes: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_report: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class EvolutionProposal(Base):
+    """
+    A self-evolution proposal mined from production evidence.
+
+    The agent improves itself, but only through this gate: evidence ->
+    typed proposal -> validation metrics -> HUMAN approval -> versioned
+    apply with rollback.  Proposals never self-approve.
+    """
+
+    __tablename__ = "evolution_proposals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    # e.g. routing_fallback | policy_rule | evaluator_pattern | prompt_hint
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    change: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    evidence: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    validation: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="proposed"
+    )  # proposed | approved | applied | rejected | rolled_back
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    previous_state: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

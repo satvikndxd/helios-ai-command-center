@@ -59,6 +59,21 @@ Commands:
   /clear             Clear the conversation history
   /quit              Exit
 
+Web research (governed, read-only — requires the helios gateway):
+  /web sources           List source adapters with health and trust level
+  /web status            Recent web access jobs (audit view)
+  /web search <query>    Multi-source search with per-source status
+  /web read <url>        Read a public page (policy-allowlisted domains)
+  /web transcript <url>  Fetch a public YouTube transcript
+
+Approvals & self-evolution (governed):
+  /approvals             List pending approval requests
+  /approve <id>          Approve a pending action
+  /deny <id>             Deny a pending action
+  /evolve                Mine failures -> self-improvement proposals
+  /evolve list           List evolution proposals and their status
+  /evolve apply <id>     Approve + apply a proposal (versioned, rollback-able)
+
 Keys: Ctrl+K focus prompt, Ctrl+L clear screen, Ctrl+C exit.
 """
 
@@ -135,9 +150,160 @@ class HeliosTUI:
         elif command == "/clear":
             self.history = []
             print("Conversation cleared.")
+        elif command == "/web":
+            self.handle_web(args)
+        elif command == "/approvals":
+            data = self._web_call("GET", "/v1/approvals?status=pending")
+            if data:
+                if not data.get("approvals"):
+                    print("No pending approvals.")
+                for a in data.get("approvals", []):
+                    print(f"  {a['id'][:8]}  {a['action']:<28}risk={a['risk']}")
+        elif command in ("/approve", "/deny"):
+            if not args:
+                print(f"Usage: {command} <approval-id>")
+            else:
+                decision = "approved" if command == "/approve" else "denied"
+                data = self._web_call(
+                    "POST", f"/v1/approvals/{args[0]}/decide",
+                    {"decision": decision, "decided_by": os.environ.get("USER", "tui")},
+                )
+                if data:
+                    print(f"{data['id'][:8]} -> {data['status']}")
+        elif command == "/evolve":
+            self.handle_evolve(args)
         else:
             print(f"Unknown command {command} — try /help")
         return True
+
+    # -- web research (governed read path) --------------------------------
+
+    def _web_call(self, method: str, path: str, payload: dict | None = None):
+        if self.profile.mode != "helios":
+            print(f"{RED}/web requires the governed helios gateway (/gateway helios).{RESET}")
+            return None
+        url = self.profile.base_url.rstrip("/") + path
+        headers = request_headers(self.profile)
+        try:
+            if method == "GET":
+                response = httpx.get(url, headers=headers, timeout=self.profile.timeout_s)
+            else:
+                response = httpx.post(
+                    url, json=payload, headers=headers, timeout=self.profile.timeout_s
+                )
+            if response.status_code == 403:
+                detail = response.json().get("detail", {})
+                print(f"{RED}BLOCKED by policy:{RESET}")
+                for reason in detail.get("reasons", []):
+                    print(f"  - {reason}")
+                if detail.get("requires_approval"):
+                    print(f"{YELLOW}  approval required (approval flow not yet enabled){RESET}")
+                return None
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError as exc:
+            print(f"{RED}Web request failed: {exc}{RESET}")
+            return None
+
+    def _print_web_result(self, data: dict) -> None:
+        print(f"{BOLD}Sources{RESET}")
+        for status in data.get("source_status", []):
+            mark = {"ok": GREEN + "✓", "skipped": DIM + "·"}.get(status["status"], YELLOW + "⚠")
+            line = f"  {mark} {status['source']:<14}{RESET}{status['status']}"
+            if status.get("results"):
+                line += f" · {status['results']} results"
+            if status.get("detail") and status["status"] != "ok":
+                line += f" · {status['detail'][:80]}"
+            print(line)
+        documents = data.get("documents", [])
+        if documents:
+            print(f"{BOLD}Evidence{RESET}")
+        for i, doc in enumerate(documents, 1):
+            warn = " ⚠" + ",".join(doc.get("warnings", [])) if doc.get("warnings") else ""
+            print(f"  [{i}] {doc.get('title') or doc.get('url') or '(untitled)'}")
+            print(
+                f"      {DIM}{doc.get('source')} · {doc.get('trust')} · "
+                f"retrieved {doc.get('retrieved_at', '')[:19]}{warn}{RESET}"
+            )
+            snippet = (doc.get("content") or "").strip().replace("\n", " ")[:200]
+            if snippet:
+                print(f"      {snippet}")
+        print(f"{DIM}job={data.get('job_id')} · {len(documents)} documents{RESET}")
+
+    def handle_web(self, args: list[str]) -> None:
+        if not args:
+            print("Usage: /web sources|status|search <query>|read <url>|transcript <url>")
+            return
+        sub, rest = args[0], args[1:]
+
+        if sub == "sources":
+            data = self._web_call("GET", "/v1/web/sources")
+            if data:
+                for src in data.get("sources", []):
+                    health = src["health"]
+                    mark = GREEN + "●" if health["status"] == "healthy" else YELLOW + "○"
+                    caps = ",".join(k for k, v in src["capabilities"].items() if v) or "-"
+                    print(
+                        f"  {mark} {src['name']:<14}{RESET}v{src['version']} · "
+                        f"{src['trust_level']} · {caps} · {health['status']}"
+                        + (f" ({health['detail']})" if health.get("detail") else "")
+                    )
+        elif sub == "status":
+            data = self._web_call("GET", "/v1/web/jobs")
+            if data:
+                for job in data.get("jobs", []):
+                    print(
+                        f"  {job['created_at'][:19]}  {job['operation']:<11}"
+                        f"{job['status']:<10}{job['documents']} docs"
+                    )
+        elif sub == "search":
+            if not rest:
+                print("Usage: /web search <query>")
+                return
+            data = self._web_call("POST", "/v1/web/search", {"query": " ".join(rest)})
+            if data:
+                self._print_web_result(data)
+        elif sub == "read":
+            if not rest:
+                print("Usage: /web read <url>")
+                return
+            data = self._web_call("POST", "/v1/web/read", {"url": rest[0]})
+            if data:
+                self._print_web_result(data)
+        elif sub == "transcript":
+            if not rest:
+                print("Usage: /web transcript <url>")
+                return
+            data = self._web_call("POST", "/v1/web/transcript", {"url": rest[0]})
+            if data:
+                self._print_web_result(data)
+        else:
+            print(f"Unknown /web subcommand '{sub}' — try /help")
+
+    def handle_evolve(self, args: list[str]) -> None:
+        if not args:  # run an analysis
+            data = self._web_call("POST", "/v1/evolution/analyze", {})
+            if data is not None:
+                created = data.get("created", [])
+                if not created:
+                    print("No new proposals — recent traffic shows no recurring failures.")
+                for p in created:
+                    print(f"  {p['id'][:8]}  [{p['kind']}] {p['title']}")
+                    print(f"           evidence: {p['evidence']['occurrences']} traces")
+        elif args[0] == "list":
+            data = self._web_call("GET", "/v1/evolution/proposals")
+            if data:
+                for p in data.get("proposals", []):
+                    print(f"  {p['id'][:8]}  {p['status']:<12}[{p['kind']}] {p['title']}")
+        elif args[0] == "apply" and len(args) > 1:
+            data = self._web_call(
+                "POST", f"/v1/evolution/proposals/{args[1]}/approve",
+                {"decided_by": os.environ.get("USER", "tui")},
+            )
+            if data:
+                print(f"{data['id'][:8]} -> {data['status']} (v{data['version']})")
+        else:
+            print("Usage: /evolve [list|apply <id>]")
 
     # -- inference --------------------------------------------------------
 
