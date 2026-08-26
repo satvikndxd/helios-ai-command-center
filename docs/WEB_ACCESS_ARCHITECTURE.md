@@ -5,8 +5,13 @@ automation, `yt-dlp`, platform CLIs, arbitrary MCP servers) into Helios without
 turning the agent into an uncontrolled scraper or allowing untrusted web
 content to influence permissions.
 
-**Implementation status:** Phase 1 (safe research read path) is implemented in
-`src/helios/web/` — see [Implementation sequence](#implementation-sequence).
+**Implementation status:** Phases W1–W4 are implemented in
+`src/helios/web/` as tested walking skeletons — the safe research read path,
+MCP governance (trust lifecycle, tool filtering, budgets, version pinning),
+browser sessions (encrypted vault, domain allowlists, approval-gated
+authenticated reads), and action workflows (typed actions, payload-bound
+approvals, idempotent effect journal, scheduled research). See
+[Implementation sequence](#implementation-sequence).
 
 ## Executive architecture decision
 
@@ -409,35 +414,47 @@ Acceptance (covered by `tests/test_web_access.py` + live run): multi-source
 research using public GitHub/Reddit/web content with citations, per-source
 status, an injection quarantine test, and a blocked-domain policy test.
 
-### Phase 2: Remote MCP and SocialCrawl hardening
+### Phase 2: Remote MCP governance ✅ (implemented)
 
-MCP worker process isolation, remote server registration, tool filtering,
-health checks, per-call budgets, raw provider response hashing (already
-started in the SocialCrawl adapter), and evidence/outcome entities.
+`McpServer` registration with trust lifecycle (`untrusted` → `approved` →
+`revoked`; untrusted servers cannot be called), tool allowlists, argument
+validation, per-call budgets (calls/bytes/timeout), version pinning with
+drift detection at health time, result sanitization, and raw provider
+response hashing (SocialCrawl adapter). Routes: `/v1/mcp/*`.
 
-Acceptance: a research workflow that falls back when one platform is
-unavailable and does not claim to have searched a source that failed.
+Acceptance (tested): calling an untrusted server, an off-allowlist tool, or
+past budget is refused; version drift marks the server degraded; every
+result returns as a sanitized untrusted document.
 
-### Phase 3: Browser sessions
+### Phase 3: Browser sessions ✅ (implemented, read-only)
 
-Browser-worker isolation, user-controlled browser connection, encrypted
-session vault, domain allowlists, screenshots, downloads policy, approval UX.
-Read-only first. No automated posts, messages, likes, follows, purchases, or
-account changes in the first browser release.
+Encrypted session vault (`HELIOS_SESSION_VAULT_KEY`, fail-closed), browser
+worker with fresh-context default, per-session domain allowlists, audit
+events (`navigate`/`read`/`blocked`), and approval-gated authenticated reads
+bound to the exact `(url, session)` payload. No automated posts, messages,
+likes, follows, purchases, or account changes exist in this release.
+Routes: `/v1/browser/*`. Container/microVM isolation of the worker is
+deployment work behind the same interface.
 
-Acceptance: reading an authenticated page with a fresh browser context,
-proving cookies and page content never enter the TUI transcript or model
-prompt except through approved sanitized fields.
+Acceptance (tested + live): cookies reach the outbound request inside the
+worker and never appear in responses, events, traces, or documents;
+non-allowlisted domains are blocked with an audit event; missing vault key
+fails closed (503).
 
-### Phase 4: Agent action workflows
+### Phase 4: Agent action workflows ✅ (implemented)
 
-Typed browser actions, typed platform operations, MCP write tools, scheduled
-research, alerts, background runs. Every write operation uses the same tool
-broker, approval queue, idempotency layer, and audit log as non-web tools.
+Typed action registry (only registered actions can execute), approvals bound
+to `sha256(action + args)`, idempotent effect journal (retry replays, never
+re-executes), and scheduled research watches that search through the
+governed broker, diff content hashes, and report changes — observing, never
+writing. The worker runs due schedules automatically. Real side-effect
+connectors (GitHub App, webhooks) slot into the executor slots on the
+enterprise track. Routes: `/v1/actions`, `/v1/approvals`, `/v1/schedules`.
 
-Acceptance: a scheduled research job that gathers sources, detects a change,
-asks for approval, and produces an auditable report without silently posting
-or modifying external data.
+Acceptance (tested): execution without approval → 403; approval for one
+payload does not authorize a modified payload; same idempotency key →
+`replayed: true` with zero re-execution; a schedule's second run detects
+changed content without posting anything.
 
 ## What not to do
 

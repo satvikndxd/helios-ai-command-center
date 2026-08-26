@@ -132,11 +132,60 @@ async def process_batch(batch_size: int = 10) -> int:
         db.close()
 
 
+def run_due_schedules() -> int:
+    """
+    Run scheduled research watches that are due (Phase W4).
+
+    Observe -> diff -> report; never writes externally.  Returns the number
+    of schedules run.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from helios.models import ScheduledResearch
+    from helios.routes.web import get_broker
+    from helios.web.actions import run_scheduled_research
+
+    db = SessionLocal()
+    ran = 0
+    try:
+        now = datetime.now(timezone.utc)
+        schedules = (
+            db.query(ScheduledResearch).filter(ScheduledResearch.active.is_(True)).all()
+        )
+        for schedule in schedules:
+            last = schedule.last_run_at
+            if last is not None and last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            due = last is None or now - last >= timedelta(
+                minutes=schedule.interval_minutes
+            )
+            if not due:
+                continue
+            try:
+                report = run_scheduled_research(db, schedule, get_broker())
+                ran += 1
+                if report.get("change_detected"):
+                    logger.info(
+                        "schedule %s detected change: %s new documents",
+                        schedule.id,
+                        report.get("new_documents"),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("scheduled research %s failed", schedule.id)
+        return ran
+    finally:
+        db.close()
+
+
 async def run_worker_loop(poll_interval: float = 2.0, batch_size: int = 10) -> None:
     """Long-running loop: drain jobs, sleep only when the queue is empty."""
     logger.info("Helios evaluation worker started.")
+    ticks = 0
     while True:
         processed = await process_batch(batch_size=batch_size)
+        ticks += 1
+        if ticks % 15 == 0:  # every ~30s at the default poll interval
+            run_due_schedules()
         if processed == 0:
             await asyncio.sleep(poll_interval)
 
