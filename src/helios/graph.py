@@ -120,3 +120,76 @@ def upsert_entities_for_document(
             )
             linked += 1
     return linked
+
+
+def get_or_create_entity(
+    db: Session,
+    *,
+    tenant_id: str,
+    name: str,
+    entity_type: str,
+    confidence: float = 0.9,
+) -> Entity:
+    """Dedup-aware entity upsert (case-insensitive per tenant)."""
+    entity = (
+        db.query(Entity)
+        .filter(Entity.tenant_id == tenant_id, Entity.name.ilike(name))
+        .first()
+    )
+    if entity is None:
+        entity = Entity(
+            tenant_id=tenant_id, type=entity_type, name=name, confidence=confidence
+        )
+        db.add(entity)
+        db.flush()
+    return entity
+
+
+def link_entities(
+    db: Session,
+    *,
+    tenant_id: str,
+    source: tuple[str, str],
+    relationship_type: str,
+    target: tuple[str, str],
+    document_id: str | None = None,
+    confidence: float = 0.9,
+) -> Relationship:
+    """
+    Domain relationship between two entities (workflow layer), e.g.
+    ("TestRun-104", "TestRun") -[involves]-> ("BM-2000", "BatteryModule").
+
+    `document_id` preserves provenance: which document/source asserts this
+    relationship.  Idempotent: an existing identical edge is returned as-is.
+    """
+    src = get_or_create_entity(
+        db, tenant_id=tenant_id, name=source[0], entity_type=source[1],
+        confidence=confidence,
+    )
+    dst = get_or_create_entity(
+        db, tenant_id=tenant_id, name=target[0], entity_type=target[1],
+        confidence=confidence,
+    )
+    existing = (
+        db.query(Relationship)
+        .filter(
+            Relationship.tenant_id == tenant_id,
+            Relationship.source_entity_id == src.id,
+            Relationship.target_entity_id == dst.id,
+            Relationship.relationship_type == relationship_type,
+        )
+        .first()
+    )
+    if existing:
+        return existing
+    edge = Relationship(
+        tenant_id=tenant_id,
+        source_entity_id=src.id,
+        target_entity_id=dst.id,
+        relationship_type=relationship_type,
+        document_id=document_id,
+        confidence=confidence,
+    )
+    db.add(edge)
+    db.flush()
+    return edge

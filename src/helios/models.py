@@ -351,6 +351,10 @@ class Document(Base):
         String(255),
         nullable=False,
     )
+    # Optional workspace scope (workflow layer). NULL = tenant-wide document.
+    workspace_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -390,6 +394,11 @@ class Chunk(Base):
         ForeignKey("tenants.id"),
         nullable=False,
         index=True,
+    )
+    # Denormalized like tenant_id: lets retrieval filter by workspace BEFORE
+    # any similarity computation, with no join. NULL = tenant-wide chunk.
+    workspace_id: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, index=True
     )
     position: Mapped[int] = mapped_column(
         Integer,
@@ -531,9 +540,16 @@ class Relationship(Base):
     relationship_type: Mapped[str] = mapped_column(
         String(50), nullable=False, default="mentioned_in"
     )
-    # Target document (MVP relationships are entity -> document provenance).
-    document_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("documents.id"), nullable=False, index=True
+    # Target document (entity -> document provenance). Nullable since the
+    # workflow layer added entity -> entity domain relationships; at least
+    # one of document_id / target_entity_id is set.
+    document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=True, index=True
+    )
+    # Target entity for domain relationships, e.g.
+    # TestRun-104 -[involves]-> BatteryModule-BM2000 (workflow layer).
+    target_entity_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("entities.id"), nullable=True, index=True
     )
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     created_at: Mapped[datetime] = mapped_column(
@@ -751,4 +767,83 @@ class EvolutionProposal(Base):
     )
     applied_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+# --- Workflow layer (workspaces / domain packs) ------------------------------
+
+
+class WorkspaceSource(Base):
+    """
+    A workspace-scoped enterprise data source record (workflow layer).
+
+    Structured records (test runs, invoices, deployments) live in `record`;
+    free-text sources also flow into the existing Document/Chunk RAG with the
+    same workspace_id.  Every source carries provenance and an explicit trust
+    classification — external content stays untrusted.
+    """
+
+    __tablename__ = "workspace_sources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # Structured payload (JSON) for deterministic analysis.
+    record: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    # Optional free text (also ingested into RAG when present).
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    document_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("documents.id"), nullable=True
+    )
+    trust: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="internal"
+    )  # internal | untrusted_external_content
+    provenance: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ingested")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class WorkflowExecution(Base):
+    """
+    One governed workflow run (workflow layer).
+
+    The full pipeline output: computed facts (deterministic), evidence with
+    provenance, AI interpretation, recommendation, risk, evaluation scores,
+    and the DecisionTrace id that carries policy/routing/model detail.
+    """
+
+    __tablename__ = "workflow_executions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    workflow_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    input: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="completed"
+    )  # completed | insufficient_evidence | invalid_input | blocked | error
+    facts: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    evidence: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    claims: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    interpretation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    risk: Mapped[str] = mapped_column(String(20), nullable=False, default="informational")
+    requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evaluation: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    feedback: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

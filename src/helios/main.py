@@ -17,6 +17,7 @@ from helios.routes import (
     simulations,
     traces,
     web,
+    workflows,
 )
 
 
@@ -48,6 +49,7 @@ app.include_router(mcp.router)
 app.include_router(browser.router)
 app.include_router(actions.router)
 app.include_router(evolution.router)
+app.include_router(workflows.router)
 
 
 @app.get("/")

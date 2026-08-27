@@ -6,17 +6,20 @@
 
 <img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
 <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-83_passing_in_~2s-FFD166?style=flat-square">
+<img alt="Tests" src="https://img.shields.io/badge/tests-106_passing_in_~4s-FFD166?style=flat-square">
 <img alt="Dependencies" src="https://img.shields.io/badge/runtime_deps-8-FFD166?style=flat-square">
 <img alt="Status" src="https://img.shields.io/badge/status-stable-4CC9F0?style=flat-square">
 
 <br/><br/>
 
-**The governed agent runtime.**
+**One governed AI runtime. Multiple enterprise workflows.**
 A terminal-first AI agent that can use any model, any OpenAI-compatible gateway,
 and any approved tool — while recording, evaluating, and governing every meaningful action.
+Domain workspaces (Engineering · Software · Finance) run on the same runtime:
+*the domain changes, the governance does not.*
 
 [Quick start](#-quick-start) ·
+[Workspaces & workflows](#-domain-workspaces--governed-workflows) ·
 [Terminal agent](#-terminal-first-agent-interface) ·
 [Gateways](#-universal-gateway-connectivity) ·
 [Web access](#-governed-web-access) ·
@@ -56,7 +59,8 @@ in a developer experience that feels like a modern coding agent:
 
 | | |
 |---|---|
-| 🖥️ **Terminal agent** | GOVERNED / DIRECT modes, 26-gateway catalog, dynamic model discovery, `/web` research, `/approvals`, `/evolve` |
+| 🏭 **Domain workspaces** | Engineering, Software, Finance packs on one workflow engine: sources → deterministic analysis → grounded reasoning → evidence → risk → approval → trace |
+| 🖥️ **Terminal agent** | GOVERNED / DIRECT modes, 26-gateway catalog, dynamic model discovery, `/workspace` + `/workflow`, `/web` research, `/approvals`, `/evolve` |
 | 🛡️ **Safety plane** | PII redaction, prompt-injection quarantine (inputs, RAG docs, web pages, MCP results), policy-as-code, blocked-decision traces |
 | 🌐 **Web access broker** | Policy preflight → adapter fallback → sanitization → provenance; failure honesty is structural |
 | 🔌 **MCP governance** | Trust lifecycle, tool allowlists, per-call budgets, version pinning with drift detection |
@@ -124,7 +128,9 @@ self-improvement, gated by humans.
 | **MCP governance** | Server registration, trust lifecycle, tool filtering, budgets, version-drift detection | ✅ shipped (W2) |
 | **Browser sessions** | Encrypted vault, domain allowlists, event audit, approval-gated authenticated reads (read-only) | ✅ shipped (W3) |
 | **Actions & approvals** | Typed registry, payload-bound approvals, idempotent effect journal, scheduled research watches | ✅ shipped (W4) |
-| **Self-evolution** | Failure mining, clustering, typed proposals, human gate, versioned apply/rollback | ✅ shipped |
+| **Self-evolution** | Failure mining (incl. workflow failures), clustering, typed proposals, human gate, versioned apply/rollback | ✅ shipped |
+| **Workflow engine** | Reusable governed pipeline: sources → deterministic analysis → RAG → reasoning → evidence → risk → approval → trace; explicit `insufficient_evidence` | ✅ shipped |
+| **Domain workspaces** | Engineering, Software Engineering, Finance/Operations packs — configuration-driven, synthetic demo data, `make demo` | ✅ shipped |
 | **Enterprise track** | Kafka/ClickHouse, OPA, Neo4j, SSO/OIDC + RBAC, SDKs, streaming, K8s | 🗺️ [roadmap](docs/YC27_TECHNICAL_CHECKLIST.md) |
 
 ## 🚀 Quick start
@@ -154,6 +160,60 @@ curl -s -X POST http://localhost:8000/v1/ai/complete \
 
 Interactive API docs: `http://localhost:8000/docs` · Tests:
 `PYTHONPATH=src python -m pytest -q` → **83 passed in ~2s**, fully offline.
+
+## 🏭 Domain workspaces & governed workflows
+
+> **One governed AI runtime. Multiple enterprise workflows.**
+> **The domain changes. The governance does not.**
+
+The workflow layer adapts Helios to different enterprise domains without a
+separate AI architecture per industry. Three reference workspaces (all
+**synthetic demo data**) run on one engine:
+
+| Workspace | Workflows | Deterministic core |
+|---|---|---|
+| **Engineering** | test-run comparison · incident investigation · daily brief · knowledge assistant | parameter deltas, threshold violations, anomaly flags, incident correlation |
+| **Software Engineering** | deployment-failure investigation · release risk analysis · daily brief | commit diffs between deploys, CI error extraction, incident-prone-service checks |
+| **Finance / Operations** | invoice compliance review · operations brief | procurement-policy rule checks, duplicate detection, aggregation (no payment actions exist) |
+
+Every execution follows the same pipeline through the **existing** governance
+stack — Sentinel, policy, router, traces, evaluation, approvals, idempotent
+actions:
+
+```text
+SOURCES → DETERMINISTIC ANALYSIS → WORKSPACE-SCOPED RAG → AI REASONING
+   → EVIDENCE + PROVENANCE → RISK CLASSIFICATION → POLICY
+   → HUMAN APPROVAL (when required) → TYPED ACTION → DECISION TRACE
+```
+
+The architecture strictly separates **COMPUTED FACT** (deterministic code:
+`max_temp_c: 48.2 → 61.3, +27.18%`) from **AI INTERPRETATION** (grounded in
+the facts block) from **RECOMMENDATION** (config-driven risk rules + approval
+gates). No sources → explicit `insufficient_evidence`, confidence 0.0, no AI
+call — never fabrication. The engine contains zero industry conditionals
+(enforced by a test); adding a domain is a configuration pack, not a core
+change.
+
+```bash
+make demo    # seeds all three workspaces + runs one workflow each (synthetic data)
+```
+
+```text
+helios:auto ❯ /workspace use engineering
+helios:auto ❯ /workflow run test_run_comparison run_a=104 run_b=105
+GOVERNED
+  WORKSPACE : ENGINEERING      RISK      : HIGH
+  WORKFLOW  : TEST_RUN_COMPARISON
+  TRACE     : 4264edad-…       EVIDENCE  : 14 SOURCES
+  STATUS    : COMPLETED        CONFIDENCE: 0.9
+  APPROVAL  : REQUIRED
+  fact max_temp_c: 48.2 -> 61.3 (+13.1 abs, +27.18%)
+  fact cooling_flow_lpm: 14.2 -> 8.9 (-5.3 abs, -37.32%)
+  fact max_temp_c=61.3 above_max limit 60.0; cooling_flow_lpm=8.9 below_min limit 10.0
+```
+
+Full guide — workspace/workflow/source/evidence models, risk & approval
+model, how to add a domain: [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
 
 ## 🖥️ Terminal-first agent interface
 
@@ -192,6 +252,7 @@ a5a87be5 -> applied (v1)
 |---|---|
 | Session | `/help` `/status` `/clear` `/quit` |
 | Models & gateways | `/gateway` `/connect` `/model` `/models` `/refresh` |
+| Workspaces | `/workspace list\|use\|status` `/workflow list\|run\|history` `/brief` `/evidence` |
 | Web research | `/web sources` `/web status` `/web search` `/web read` `/web transcript` |
 | Governance | `/approvals` `/approve <id>` `/deny <id>` |
 | Self-evolution | `/evolve` `/evolve list` `/evolve apply <id>` |
@@ -376,6 +437,7 @@ for canary / do-not-deploy verdicts.
 | Actions | Typed registry, payload-hash-bound approvals, idempotent effect journal |
 | Output | Leak scanning; citations required for high-risk answers |
 | Evolution | Human-only apply gate, versioned state, one-call rollback |
+| Workflows | Same Sentinel/policy/trace path as the gateway; workspace-scoped retrieval; deterministic facts; risk-gated approvals; explicit insufficient-evidence state |
 | Credentials | Environment-variable references everywhere; raw secrets rejected at every input path |
 
 ## 📊 Measured results
@@ -385,7 +447,7 @@ No projections.
 
 | Metric | Measured |
 |---|---|
-| Test suite | **83/83 passing in ~2s**, zero external services (SQLite + mock providers) |
+| Test suite | **106/106 passing in ~4s**, zero external services (SQLite + mock providers) |
 | Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
 | Groundedness (spec §24 refund query) | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
 | Retrieval ranking | relevant doc **0.344** vs **0.000** irrelevant (cosine, top-k=3) |
@@ -397,7 +459,10 @@ No projections.
 | Idempotency | same key → `replayed: true`, zero re-execution; changed args → re-approval required (tested) |
 | Self-evolution | 3 provider failures → mined proposal → TUI apply → live routing override → rollback (tested + live) |
 | Simulator | replayed traffic vs candidate; `canary_1_percent` / `do_not_deploy` verdicts |
-| Footprint | **~7.7k LOC** src + **~1.8k LOC** tests, **44 API endpoints**, 2 processes (api + worker) + TUI, 1 database |
+| Workflow determinism | Run 104→105: `max_temp +27.18%`, `cooling_flow −37.32%`, 3 threshold violations — computed, not model-claimed (tested + live) |
+| Cross-domain governance | same engine ran engineering/software/finance demos end-to-end: high risk → approval → payload-bound idempotent action (tested + live) |
+| Insufficient evidence | empty tenant → `insufficient_evidence`, confidence 0.0, zero AI calls, nothing fabricated (tested) |
+| Footprint | **~10.6k LOC** src + **~2.4k LOC** tests, **56 API endpoints**, 22 models, 2 processes (api + worker) + TUI, 1 database |
 
 ## 🗂️ Project structure
 
@@ -405,15 +470,17 @@ No projections.
 src/helios/
   main.py             FastAPI app + startup          gateways.py   26-gateway catalog + custom profiles
   config.py           HELIOS_* settings              evolution.py  self-evolution engine
-  models.py           20 SQLAlchemy models           worker.py     eval worker + scheduled research
+  models.py           22 SQLAlchemy models           worker.py     eval worker + scheduled research
   security.py         API-key auth                   cli.py        create-api-key, gateway-add/list
   sentinel.py         PII + injection detection      policy.py     policy-as-code gates
   registry.py         model registry + router        retrieval.py  tenant-isolated vector search
-  tui/                terminal agent (GOVERNED/DIRECT, /web, /approvals, /evolve)
+  tui/                terminal agent (GOVERNED/DIRECT, /workspace, /workflow, /web, /evolve)
   web/                broker, policy, sanitizer, vault, browser worker, MCP broker, actions
     adapters/         http/rss, github, reddit, youtube, agent-reach, socialcrawl
+  workflows/          engine, deterministic analysis, evidence, briefs, seeding
+    packs/            engineering, software, finance (config-driven, synthetic data)
   routes/             completions, traces, knowledge, review, datasets, simulations,
-                      web, mcp, browser, actions, evolution, health
+                      web, mcp, browser, actions, evolution, workflows, health
   providers/          mock, openai_compatible, gemini, anthropic + router
   evaluators/         empty-output, latency-SLA, refusal, groundedness pipeline
   embeddings/         mock (hashed BoW), gemini, openai
@@ -445,6 +512,7 @@ Honest engineering notes, not fine print:
 
 | Document | Contents |
 |---|---|
+| [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | The workflow layer: workspace/workflow/source/evidence models, risk & approval model, reference workspaces, how to add a domain, demo, limitations |
 | [docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md) | The full web-access design: planes, adapters, worker isolation, secrets, phased rollout (W1–W4) |
 | [docs/helios-web-access.mmd](docs/helios-web-access.mmd) | Editable Mermaid source for the web-access system diagram |
 | [docs/YC27_TECHNICAL_CHECKLIST.md](docs/YC27_TECHNICAL_CHECKLIST.md) | The complete technical roadmap: P0–P2 priorities, acceptance tests, build order, the minimum competitive 15 |

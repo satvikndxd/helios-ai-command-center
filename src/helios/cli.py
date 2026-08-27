@@ -117,6 +117,71 @@ def gateway_list() -> None:
         )
 
 
+def demo() -> None:
+    """
+    Self-contained demo environment (synthetic data + mock providers).
+
+    Initializes the Engineering, Software, and Finance/Operations workspaces
+    for tenant 'demo', seeds synthetic sources/documents/graph relationships,
+    runs one example workflow per workspace, and prints an API key plus
+    next-step commands.  Requires no external services and no secrets.
+    """
+    import asyncio
+
+    from helios.models import ApiKey as ApiKeyModel
+    from helios.workflows.engine import WorkflowEngine
+    from helios.workflows.registry import all_packs
+    from helios.workflows.seeding import seed_all_workspaces
+
+    init_db()
+    db = SessionLocal()
+    try:
+        tenant = get_or_create_tenant(db, "demo")
+        application = get_or_create_application(db, tenant, "command-center")
+        raw_key = secrets.token_urlsafe(32)
+        api_key = ApiKeyModel(
+            key_hash=hash_api_key(raw_key),
+            tenant_id=tenant.id,
+            application_id=application.id,
+            name="demo",
+            active=True,
+        )
+        db.add(api_key)
+        db.commit()
+
+        print("Seeding synthetic workspaces (no proprietary data)...")
+        created = asyncio.run(seed_all_workspaces(db, tenant.id))
+        for workspace_id, counts in created.items():
+            print(f"  {workspace_id:<14}{counts}")
+
+        print("\nRunning one example workflow per workspace...")
+        examples = {
+            "engineering": ("test_run_comparison", {"run_a": 104, "run_b": 105}),
+            "software": ("deployment_failure_investigation", {}),
+            "finance": ("invoice_compliance_review", {}),
+        }
+        engine = WorkflowEngine(db, api_key)
+        for workspace_id, (workflow_id, input_data) in examples.items():
+            pack = all_packs()[workspace_id]
+            execution = asyncio.run(engine.run(pack, workflow_id, input_data))
+            print(
+                f"  {workspace_id:<14}{workflow_id:<34}"
+                f"status={execution.status} risk={execution.risk} "
+                f"evidence={len(execution.evidence or [])} trace={execution.trace_id[:8]}"
+            )
+
+        print("\nDemo ready. API key (tenant 'demo'):")
+        print(raw_key)
+        print("\nTry:")
+        print("  export HELIOS_API_KEY=" + raw_key)
+        print("  PYTHONPATH=src python -m helios.tui")
+        print("    /workspace use engineering")
+        print("    /workflow run test_run_comparison run_a=104 run_b=105")
+        print("    /brief   ·   /workflow history   ·   /approvals")
+    finally:
+        db.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="helios")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -154,6 +219,11 @@ def main() -> None:
         help="List built-in and custom gateway profiles",
     )
 
+    subparsers.add_parser(
+        "demo",
+        help="Initialize the synthetic multi-workspace demo environment",
+    )
+
     args = parser.parse_args()
 
     if args.command == "create-api-key":
@@ -162,6 +232,8 @@ def main() -> None:
         gateway_add(args)
     elif args.command == "gateway-list":
         gateway_list()
+    elif args.command == "demo":
+        demo()
 
 
 if __name__ == "__main__":
