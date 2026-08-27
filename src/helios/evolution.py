@@ -48,6 +48,15 @@ def evolution_state(tenant_id: str) -> dict:
 
 def _signature(trace: DecisionTrace) -> str | None:
     """Classify one trace into a failure signature (None = healthy)."""
+    # Workflow-layer signatures: workflow executions are DecisionTraces too
+    # (task_type = "workflow:<id>"), so the same evolution loop mines them.
+    workflow = (trace.request_payload or {}).get("workflow") or {}
+    if workflow:
+        if workflow.get("status") == "insufficient_evidence":
+            return f"workflow_insufficient_evidence:{workflow.get('workflow_id')}"
+        rating = (trace.feedback or {}).get("workflow_rating")
+        if rating in ("incorrect", "unsafe", "incomplete"):
+            return f"workflow_negative_feedback:{workflow.get('workflow_id')}"
     if trace.status == "blocked":
         return "policy_block"
     if trace.status == "error":
@@ -95,6 +104,27 @@ def _proposal_for(signature: str, traces: list[DecisionTrace]) -> dict | None:
         "trace_ids": [t.id for t in traces[:20]],
     }
 
+    if signature.startswith("workflow_insufficient_evidence:"):
+        workflow_id = signature.split(":", 1)[1]
+        return {
+            "kind": "policy_rule",
+            "title": f"Expand source coverage for workflow '{workflow_id}' "
+                     f"({len(traces)} runs returned INSUFFICIENT_EVIDENCE)",
+            "change": {"workflow_id": workflow_id, "require_source_review": True,
+                       "suggest_ingestion": True},
+            "evidence": evidence,
+        }
+    if signature.startswith("workflow_negative_feedback:"):
+        workflow_id = signature.split(":", 1)[1]
+        return {
+            "kind": "prompt_hint",
+            "title": f"Tighten reasoning guidance for workflow '{workflow_id}' "
+                     f"after {len(traces)} negative reviews",
+            "change": {"workflow_id": workflow_id,
+                       "hint": "Cite specific evidence for every claim; separate "
+                               "computed facts from interpretation explicitly."},
+            "evidence": evidence,
+        }
     if signature.startswith("provider_error:"):
         provider = signature.split(":", 1)[1]
         return {
