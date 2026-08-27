@@ -66,6 +66,16 @@ Web research (governed, read-only — requires the helios gateway):
   /web read <url>        Read a public page (policy-allowlisted domains)
   /web transcript <url>  Fetch a public YouTube transcript
 
+Workspaces & workflows (governed):
+  /workspace list          List domain workspaces
+  /workspace use <id>      Switch active workspace (engineering|software|finance)
+  /workspace status        Command-center overview for the active workspace
+  /workflow list           List workflows in the active workspace
+  /workflow run <id> [k=v ...]   Run a governed workflow (e.g. run_a=104 run_b=105)
+  /workflow history        Recent workflow executions
+  /brief                   Run the active workspace's daily brief
+  /evidence <execution-id> Show evidence + claims for an execution
+
 Approvals & self-evolution (governed):
   /approvals             List pending approval requests
   /approve <id>          Approve a pending action
@@ -84,6 +94,7 @@ class HeliosTUI:
         self.model: str | None = self.profile.default_model
         self.history: list[dict[str, str]] = []
         self.models: list[str] = []
+        self.workspace: str | None = None  # active domain workspace
 
     # -- presentation -----------------------------------------------------
 
@@ -172,6 +183,19 @@ class HeliosTUI:
                     print(f"{data['id'][:8]} -> {data['status']}")
         elif command == "/evolve":
             self.handle_evolve(args)
+        elif command == "/workspace":
+            self.handle_workspace(args)
+        elif command == "/workflow":
+            self.handle_workflow(args)
+        elif command == "/brief":
+            self.run_workflow("daily_brief" if self.workspace != "finance" else "operations_brief", {})
+        elif command == "/evidence":
+            if not args:
+                print("Usage: /evidence <execution-id>")
+            else:
+                data = self._web_call("GET", f"/v1/workflows/executions/{args[0]}")
+                if data:
+                    self._print_evidence(data)
         else:
             print(f"Unknown command {command} — try /help")
         return True
@@ -279,6 +303,118 @@ class HeliosTUI:
                 self._print_web_result(data)
         else:
             print(f"Unknown /web subcommand '{sub}' — try /help")
+
+    # -- workspaces & workflows (governed) ---------------------------------
+
+    def _governance_banner(self, execution: dict) -> None:
+        status = execution.get("status", "?").upper()
+        color = GREEN if status == "COMPLETED" else YELLOW
+        print(f"{GREEN}{BOLD}GOVERNED{RESET}")
+        print(f"  WORKSPACE : {execution.get('workspace_id', '?').upper()}")
+        print(f"  WORKFLOW  : {execution.get('workflow_id', '?').upper()}")
+        print(f"  STATUS    : {color}{status}{RESET}")
+        print(f"  TRACE     : {execution.get('trace_id')}")
+        print(f"  RISK      : {execution.get('risk', '?').upper()}")
+        print(f"  EVIDENCE  : {execution.get('evidence_count', 0)} SOURCES")
+        print(f"  CONFIDENCE: {execution.get('confidence')}")
+        approval = "REQUIRED" if execution.get("requires_approval") else "NOT REQUIRED"
+        print(f"  APPROVAL  : {approval}")
+
+    def _print_execution(self, execution: dict) -> None:
+        self._governance_banner(execution)
+        for fact in execution.get("facts", [])[:12]:
+            print(f"  {DIM}fact{RESET} {fact.get('detail') or fact.get('name')}")
+        if execution.get("interpretation"):
+            print(f"{BOLD}Interpretation{RESET}\n{execution['interpretation'][:800]}")
+        if execution.get("recommendation"):
+            print(f"{BOLD}Recommendation{RESET}\n{execution['recommendation'][:400]}")
+        print(f"{DIM}execution={execution.get('id')} · "
+              f"{execution.get('latency_ms')}ms · ${execution.get('cost_usd')}{RESET}")
+
+    def _print_evidence(self, execution: dict) -> None:
+        print(f"{BOLD}Evidence{RESET} ({len(execution.get('evidence', []))})")
+        for i, ev in enumerate(execution.get("evidence", [])):
+            print(f"  [{i}] {ev.get('kind'):<12}{ev.get('source')} "
+                  f"{DIM}trust={ev.get('trust')}{RESET}")
+            if ev.get("excerpt"):
+                print(f"      {ev['excerpt'][:140]}")
+        print(f"{BOLD}Claims{RESET} ({len(execution.get('claims', []))})")
+        for claim in execution.get("claims", []):
+            print(f"  [{claim.get('category'):<15}] conf={claim.get('confidence')} "
+                  f"{str(claim.get('claim'))[:120]}")
+
+    def handle_workspace(self, args: list[str]) -> None:
+        if not args or args[0] == "list":
+            data = self._web_call("GET", "/v1/workspaces")
+            if data:
+                for ws in data.get("workspaces", []):
+                    active = " (active)" if ws["id"] == self.workspace else ""
+                    synth = " · synthetic demo" if ws.get("synthetic") else ""
+                    print(f"  {ws['id']:<14}{ws['name']} — {ws['domain']}{synth}{active}")
+        elif args[0] == "use" and len(args) > 1:
+            data = self._web_call("GET", f"/v1/workspaces/{args[1]}")
+            if data:
+                self.workspace = args[1]
+                print(f"Workspace: {data['name']} [{data['domain']}] — "
+                      f"workflows: {', '.join(w['id'] for w in data['workflows'])}")
+        elif args[0] == "status":
+            if not self.workspace:
+                print("No active workspace — /workspace use <id> first.")
+                return
+            data = self._web_call("GET", f"/v1/workspaces/{self.workspace}/overview")
+            if data:
+                print(f"  sources            : {data['sources']}")
+                print(f"  pending approvals  : {data['pending_approvals']}")
+                print(f"  open reviews       : {data['open_reviews']}")
+                print(f"  blocked wf traces  : {data['blocked_workflow_traces']}")
+                for e in data.get("recent_executions", [])[:5]:
+                    print(f"  {e['created_at'][:19]}  {e['workflow_id']:<28}"
+                          f"{e['status']:<24}risk={e['risk']}")
+        else:
+            print("Usage: /workspace list|use <id>|status")
+
+    def run_workflow(self, workflow_id: str, input_data: dict) -> None:
+        if not self.workspace:
+            print("No active workspace — /workspace use <id> first.")
+            return
+        data = self._web_call(
+            "POST", "/v1/workflows/run",
+            {"workspace_id": self.workspace, "workflow_id": workflow_id,
+             "input": input_data},
+        )
+        if data:
+            self._print_execution(data)
+
+    def handle_workflow(self, args: list[str]) -> None:
+        if not args or args[0] == "list":
+            if not self.workspace:
+                print("No active workspace — /workspace use <id> first.")
+                return
+            data = self._web_call("GET", f"/v1/workspaces/{self.workspace}/workflows")
+            if data:
+                for w in data.get("workflows", []):
+                    required = ",".join(w.get("input_schema", {}).get("required", []))
+                    print(f"  {w['id']:<32}{w['name']}"
+                          + (f"  {DIM}input: {required}{RESET}" if required else ""))
+        elif args[0] == "run" and len(args) > 1:
+            input_data: dict = {}
+            for pair in args[2:]:
+                if "=" in pair:
+                    key, _, value = pair.partition("=")
+                    input_data[key] = int(value) if value.isdigit() else value
+            self.run_workflow(args[1], input_data)
+        elif args[0] == "history":
+            path = "/v1/workflows/executions"
+            if self.workspace:
+                path += f"?workspace_id={self.workspace}"
+            data = self._web_call("GET", path)
+            if data:
+                for e in data.get("executions", []):
+                    print(f"  {e['id'][:8]}  {e['created_at'][:19]}  "
+                          f"{e['workspace_id']}/{e['workflow_id']:<28}"
+                          f"{e['status']:<24}risk={e['risk']}")
+        else:
+            print("Usage: /workflow list|run <id> [k=v ...]|history")
 
     def handle_evolve(self, args: list[str]) -> None:
         if not args:  # run an analysis
