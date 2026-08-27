@@ -4,11 +4,11 @@
 
 <br/><br/>
 
-<img alt="Release" src="https://img.shields.io/badge/release-MVP-4CC9F0?style=flat-square">
-<img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-4CC9F0?style=flat-square">
-<img alt="Tests" src="https://img.shields.io/badge/tests-106_passing_in_~4s-FFD166?style=flat-square">
-<img alt="Dependencies" src="https://img.shields.io/badge/runtime_deps-8-FFD166?style=flat-square">
-<img alt="Status" src="https://img.shields.io/badge/status-stable-4CC9F0?style=flat-square">
+<img alt="Release" src="https://img.shields.io/badge/release-MVP-00E676?style=flat-square&labelColor=0A1A0F">
+<img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-00E676?style=flat-square&labelColor=0A1A0F">
+<img alt="Tests" src="https://img.shields.io/badge/tests-106_passing_in_~4s-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="Dependencies" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="Status" src="https://img.shields.io/badge/status-stable-00E676?style=flat-square&labelColor=0A1A0F">
 
 <br/><br/>
 
