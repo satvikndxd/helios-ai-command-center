@@ -36,6 +36,7 @@ async def search(
     query: str,
     settings: Settings,
     top_k: int | None = None,
+    workspace_id: str | None = None,
 ) -> list[RetrievedChunk]:
     """
     Tenant-isolated nearest-neighbor search over knowledge chunks.
@@ -56,20 +57,27 @@ async def search(
 
     if dialect == "postgresql":
         vec_literal = "[" + ",".join(f"{v:.8f}" for v in query_vec) + "]"
+        workspace_clause = (
+            "AND c.workspace_id = :workspace_id" if workspace_id else ""
+        )
+        params = {"qvec": vec_literal, "tenant_id": tenant_id, "k": k}
+        if workspace_id:
+            params["workspace_id"] = workspace_id
         rows = db.execute(
             sql_text(
-                """
+                f"""
                 SELECT c.id, c.document_id, d.title, c.content, c.position,
                        1 - (c.embedding <=> CAST(:qvec AS vector)) AS score
                 FROM chunks c
                 JOIN documents d ON d.id = c.document_id
                 WHERE c.tenant_id = :tenant_id
+                  {workspace_clause}
                   AND c.embedding IS NOT NULL
                 ORDER BY c.embedding <=> CAST(:qvec AS vector)
                 LIMIT :k
                 """
             ),
-            {"qvec": vec_literal, "tenant_id": tenant_id, "k": k},
+            params,
         ).fetchall()
 
         return [
@@ -86,13 +94,15 @@ async def search(
 
     # Portable fallback (SQLite / others): brute-force cosine in Python.
     # Fine for tests and small local KBs; Postgres is the production path.
-    rows = (
+    query_rows = (
         db.query(Chunk, Document.title)
         .join(Document, Document.id == Chunk.document_id)
         .filter(Chunk.tenant_id == tenant_id)
         .filter(Chunk.embedding.isnot(None))
-        .all()
     )
+    if workspace_id:
+        query_rows = query_rows.filter(Chunk.workspace_id == workspace_id)
+    rows = query_rows.all()
 
     scored = [
         RetrievedChunk(

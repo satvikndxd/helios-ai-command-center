@@ -74,6 +74,33 @@ ACTION_REGISTRY: dict[str, dict] = {
 }
 
 
+def register_action(
+    name: str,
+    *,
+    risk: str,
+    description: str,
+    executor: Callable | None = None,
+) -> None:
+    """
+    Additive registration hook for workflow-pack typed actions.
+
+    Same registry, same approval binding, same idempotency and audit path —
+    packs extend the action surface without a parallel execution path.
+    Re-registration with identical metadata is a no-op; conflicting
+    re-registration is an error (no silent overrides).
+    """
+    existing = ACTION_REGISTRY.get(name)
+    if existing is not None:
+        if existing["risk"] == risk and existing["description"] == description:
+            return
+        raise ValueError(f"action '{name}' already registered with different metadata")
+    ACTION_REGISTRY[name] = {
+        "risk": risk,
+        "description": description,
+        "executor": executor,
+    }
+
+
 def propose_action(
     db: Session, tenant_id: str, action: str, args: dict, summary: dict | None = None
 ) -> ApprovalRequest:

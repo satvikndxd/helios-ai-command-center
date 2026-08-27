@@ -1,9 +1,12 @@
-.PHONY: up seed curl-complete traces worker test tui
+.PHONY: up seed curl-complete traces worker test tui demo
 
 GATEWAY ?= helios
 
 tui:
 	PYTHONPATH=src python -m helios.tui --gateway $(GATEWAY)
+
+demo:
+	PYTHONPATH=src python -m helios.cli demo
 
 up:
 	docker compose up --build
