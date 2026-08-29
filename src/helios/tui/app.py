@@ -5,7 +5,7 @@ Design constraints:
 
 * Zero extra dependencies — ANSI + readline from the standard library, httpx
   (already a Helios dependency) for transport.
-* Works over SSH and in narrow/limited-color terminals.
+* Works over SSH, in narrow terminals, and honors NO_COLOR/TERM=dumb.
 * The governed path is the default and is always visibly marked GOVERNED;
   direct gateways are marked DIRECT so users know when governance is
   bypassed.
@@ -33,59 +33,48 @@ from helios.tui import (
     extract_governed_output,
     request_headers,
 )
+from helios.tui import ui
+from helios.tui.ui import Spinner, badge, bullet, c, error, kv, panel, risk_badge, success, table
 
 try:  # pragma: no cover - readline is absent on some platforms
     import readline  # noqa: F401  (enables history + Ctrl+L clear-screen)
 except ImportError:  # pragma: no cover
     pass
 
-RESET = "\x1b[0m"
-BOLD = "\x1b[1m"
-DIM = "\x1b[2m"
-CYAN = "\x1b[36m"
-YELLOW = "\x1b[33m"
-GREEN = "\x1b[32m"
-RED = "\x1b[31m"
+HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Session", [
+        ("/help", "Show this help"),
+        ("/status", "Gateway, mode, model, endpoint"),
+        ("/clear", "Clear the conversation history"),
+        ("/quit", "Exit"),
+    ]),
+    ("Models & gateways", [
+        ("/gateway [name]", "Show or switch the active gateway"),
+        ("/connect <name>", "Alias for /gateway <name>"),
+        ("/model [name]", "Show or set the model"),
+        ("/models", "List models cached from the last /refresh"),
+        ("/refresh", "Discover models via GET /models"),
+    ]),
+    ("Workspaces & workflows (governed)", [
+        ("/workspace list|use <id>|status", "Domain workspaces"),
+        ("/workflow list|run <id> [k=v ...]|history", "Governed workflows"),
+        ("/brief", "Run the active workspace's daily brief"),
+        ("/evidence <execution-id>", "Evidence + claims for an execution"),
+    ]),
+    ("Web research (governed, read-only)", [
+        ("/web sources|status", "Source registry / audit trail"),
+        ("/web search <query>", "Multi-source search with per-source status"),
+        ("/web read <url>", "Read an allowlisted public page"),
+        ("/web transcript <url>", "Public YouTube transcript"),
+    ]),
+    ("Approvals & self-evolution (governed)", [
+        ("/approvals", "Pending approval requests"),
+        ("/approve <id> · /deny <id>", "Decide a pending action"),
+        ("/evolve [list|apply <id>]", "Failure mining → improvement proposals"),
+    ]),
+]
 
-HELP = """\
-Commands:
-  /help              Show this help
-  /gateway [name]    Show or switch the active gateway
-  /connect <name>    Alias for /gateway <name>
-  /model [name]      Show or set the model for the active gateway
-  /models            List models cached from the last /refresh
-  /refresh           Discover models via GET /models on the active gateway
-  /status            Show gateway, mode, model, and endpoint
-  /clear             Clear the conversation history
-  /quit              Exit
-
-Web research (governed, read-only — requires the helios gateway):
-  /web sources           List source adapters with health and trust level
-  /web status            Recent web access jobs (audit view)
-  /web search <query>    Multi-source search with per-source status
-  /web read <url>        Read a public page (policy-allowlisted domains)
-  /web transcript <url>  Fetch a public YouTube transcript
-
-Workspaces & workflows (governed):
-  /workspace list          List domain workspaces
-  /workspace use <id>      Switch active workspace (engineering|software|finance)
-  /workspace status        Command-center overview for the active workspace
-  /workflow list           List workflows in the active workspace
-  /workflow run <id> [k=v ...]   Run a governed workflow (e.g. run_a=104 run_b=105)
-  /workflow history        Recent workflow executions
-  /brief                   Run the active workspace's daily brief
-  /evidence <execution-id> Show evidence + claims for an execution
-
-Approvals & self-evolution (governed):
-  /approvals             List pending approval requests
-  /approve <id>          Approve a pending action
-  /deny <id>             Deny a pending action
-  /evolve                Mine failures -> self-improvement proposals
-  /evolve list           List evolution proposals and their status
-  /evolve apply <id>     Approve + apply a proposal (versioned, rollback-able)
-
-Keys: Ctrl+K focus prompt, Ctrl+L clear screen, Ctrl+C exit.
-"""
+KEYS_HINT = "Ctrl+K focus prompt · Ctrl+L clear screen · Ctrl+C exit"
 
 
 class HeliosTUI:
@@ -98,22 +87,37 @@ class HeliosTUI:
 
     # -- presentation -----------------------------------------------------
 
+    @property
+    def governed(self) -> bool:
+        return self.profile.mode == "helios"
+
     def mode_badge(self) -> str:
-        if self.profile.mode == "helios":
-            return f"{GREEN}{BOLD}GOVERNED{RESET}"
-        return f"{YELLOW}{BOLD}DIRECT{RESET}"
+        return badge("GOVERNED", "green") if self.governed else badge("DIRECT", "yellow")
 
     def prompt_str(self) -> str:
-        model = self.model or "auto"
-        return f"{CYAN}{self.profile.name}{RESET}{DIM}:{model}{RESET} ❯ "
+        return ui.build_prompt(
+            self.profile.name, self.governed, self.workspace, self.model or "auto"
+        )
+
+    def print_help(self) -> None:
+        for title, entries in HELP_SECTIONS:
+            print("  " + c(title, "sea", bold=True))
+            for cmd, desc in entries:
+                print(f"    {c(cmd.ljust(42), 'green')}{c(desc, 'dim')}")
+        print("\n  " + c(KEYS_HINT, "dim"))
 
     def print_status(self) -> None:
-        print(f"  gateway : {self.profile.name} [{self.mode_badge()}]")
-        print(f"  endpoint: {completion_endpoint(self.profile)}")
-        print(f"  model   : {self.model or 'auto (router decides)'}")
         key_env = self.profile.api_key_env or "-"
-        key_set = "set" if self.profile.resolve_api_key() else "not set"
-        print(f"  key env : {key_env} ({key_set})")
+        key_state = (
+            c("set", "green") if self.profile.resolve_api_key() else c("not set", "yellow")
+        )
+        print(panel("STATUS", [
+            kv("gateway", f"{c(self.profile.name, 'fg', bold=True)}  {self.mode_badge()}"),
+            kv("endpoint", c(completion_endpoint(self.profile), "fg")),
+            kv("model", c(self.model or "auto (router decides)", "fg")),
+            kv("workspace", c(self.workspace or "none", "fg")),
+            kv("key env", f"{c(key_env, 'fg')} ({key_state})"),
+        ]))
 
     # -- commands ---------------------------------------------------------
 
@@ -125,54 +129,67 @@ class HeliosTUI:
         if command in ("/quit", "/exit"):
             return False
         if command == "/help":
-            print(HELP)
+            self.print_help()
         elif command in ("/gateway", "/connect"):
             if not args:
-                names = sorted(all_gateways())
-                print(f"Active: {self.profile.name} [{self.mode_badge()}]")
-                print("Available: " + ", ".join(names))
+                profiles = all_gateways()
+                rows = []
+                for name in sorted(profiles):
+                    p = profiles[name]
+                    marker = c("●", "green") if name == self.profile.name else c("·", "dim")
+                    mode = "governed" if p.mode == "helios" else "direct"
+                    rows.append([marker, name, mode, p.source, p.base_url])
+                print(table(["", "gateway", "mode", "source", "base url"], rows))
             else:
                 try:
                     self.profile = get_gateway(args[0])
                     self.model = self.profile.default_model
                     self.models = []
-                    print(f"Switched to {self.profile.name} [{self.mode_badge()}]")
+                    print(success(f"Switched to {c(self.profile.name, 'fg', bold=True)} "
+                                  f"{self.mode_badge()}"))
                 except KeyError as exc:
-                    print(f"{RED}{exc.args[0]}{RESET}")
+                    print(error(exc.args[0]))
         elif command == "/model":
             if args:
                 self.model = args[0]
-                print(f"Model set to {self.model}")
+                print(success(f"Model set to {c(self.model, 'fg', bold=True)}"))
             else:
-                print(f"Model: {self.model or 'auto (router decides)'}")
+                print(kv("model", self.model or "auto (router decides)"))
         elif command == "/models":
             if not self.models:
-                print("No cached models — run /refresh first.")
+                print(c("  No cached models — run /refresh first.", "dim"))
             for model_id in self.models:
-                print(f"  {model_id}")
+                print(bullet(model_id, mark="·", color="dim"))
         elif command == "/refresh":
             try:
-                self.models = discover_models(self.profile)
-                print(f"Discovered {len(self.models)} models from {self.profile.base_url}")
+                with Spinner("discovering models"):
+                    self.models = discover_models(self.profile)
+                print(success(f"Discovered {c(str(len(self.models)), 'fg', bold=True)} "
+                              f"models from {self.profile.base_url}"))
             except Exception as exc:  # noqa: BLE001 - show the user, keep looping
-                print(f"{RED}Model discovery failed: {exc}{RESET}")
+                print(error(f"Model discovery failed: {exc}"))
         elif command == "/status":
             self.print_status()
         elif command == "/clear":
             self.history = []
-            print("Conversation cleared.")
+            print(success("Conversation cleared."))
         elif command == "/web":
             self.handle_web(args)
         elif command == "/approvals":
             data = self._web_call("GET", "/v1/approvals?status=pending")
             if data:
-                if not data.get("approvals"):
-                    print("No pending approvals.")
-                for a in data.get("approvals", []):
-                    print(f"  {a['id'][:8]}  {a['action']:<28}risk={a['risk']}")
+                approvals = data.get("approvals", [])
+                if not approvals:
+                    print(c("  No pending approvals.", "dim"))
+                else:
+                    print(table(
+                        ["id", "action", "risk"],
+                        [[a["id"][:8], a["action"], risk_badge(a["risk"])]
+                         for a in approvals],
+                    ))
         elif command in ("/approve", "/deny"):
             if not args:
-                print(f"Usage: {command} <approval-id>")
+                print(error(f"Usage: {command} <approval-id>"))
             else:
                 decision = "approved" if command == "/approve" else "denied"
                 data = self._web_call(
@@ -180,7 +197,7 @@ class HeliosTUI:
                     {"decision": decision, "decided_by": os.environ.get("USER", "tui")},
                 )
                 if data:
-                    print(f"{data['id'][:8]} -> {data['status']}")
+                    print(success(f"{data['id'][:8]} → {data['status']}"))
         elif command == "/evolve":
             self.handle_evolve(args)
         elif command == "/workspace":
@@ -188,194 +205,251 @@ class HeliosTUI:
         elif command == "/workflow":
             self.handle_workflow(args)
         elif command == "/brief":
-            self.run_workflow("daily_brief" if self.workspace != "finance" else "operations_brief", {})
+            self.run_workflow(
+                "daily_brief" if self.workspace != "finance" else "operations_brief", {}
+            )
         elif command == "/evidence":
             if not args:
-                print("Usage: /evidence <execution-id>")
+                print(error("Usage: /evidence <execution-id>"))
             else:
                 data = self._web_call("GET", f"/v1/workflows/executions/{args[0]}")
                 if data:
                     self._print_evidence(data)
         else:
-            print(f"Unknown command {command} — try /help")
+            print(error(f"Unknown command {command} — try /help"))
         return True
 
     # -- web research (governed read path) --------------------------------
 
     def _web_call(self, method: str, path: str, payload: dict | None = None):
-        if self.profile.mode != "helios":
-            print(f"{RED}/web requires the governed helios gateway (/gateway helios).{RESET}")
+        if not self.governed:
+            print(error("This command needs the governed helios gateway (/gateway helios)."))
             return None
         url = self.profile.base_url.rstrip("/") + path
         headers = request_headers(self.profile)
         try:
-            if method == "GET":
-                response = httpx.get(url, headers=headers, timeout=self.profile.timeout_s)
-            else:
-                response = httpx.post(
-                    url, json=payload, headers=headers, timeout=self.profile.timeout_s
-                )
+            with Spinner("working"):
+                if method == "GET":
+                    response = httpx.get(url, headers=headers, timeout=self.profile.timeout_s)
+                else:
+                    response = httpx.post(
+                        url, json=payload, headers=headers, timeout=self.profile.timeout_s
+                    )
             if response.status_code == 403:
                 detail = response.json().get("detail", {})
-                print(f"{RED}BLOCKED by policy:{RESET}")
-                for reason in detail.get("reasons", []):
-                    print(f"  - {reason}")
-                if detail.get("requires_approval"):
-                    print(f"{YELLOW}  approval required (approval flow not yet enabled){RESET}")
+                lines = [c("Blocked by policy", "red", bold=True)]
+                for reason in detail.get("reasons", []) or [detail.get("reason", "")]:
+                    if reason:
+                        lines.append(c(f"– {reason}", "fg"))
+                if detail.get("requires_approval") or detail.get("approval_required"):
+                    lines.append(c("approval required", "yellow"))
+                print(panel("POLICY", lines, color="red"))
                 return None
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as exc:
-            print(f"{RED}Web request failed: {exc}{RESET}")
+            print(error(f"Request failed: {exc}"))
             return None
 
     def _print_web_result(self, data: dict) -> None:
-        print(f"{BOLD}Sources{RESET}")
+        rows = []
         for status in data.get("source_status", []):
-            mark = {"ok": GREEN + "✓", "skipped": DIM + "·"}.get(status["status"], YELLOW + "⚠")
-            line = f"  {mark} {status['source']:<14}{RESET}{status['status']}"
+            detail = ""
             if status.get("results"):
-                line += f" · {status['results']} results"
-            if status.get("detail") and status["status"] != "ok":
-                line += f" · {status['detail'][:80]}"
-            print(line)
+                detail = f"{status['results']} results"
+            elif status.get("detail") and status["status"] != "ok":
+                detail = status["detail"][:60]
+            rows.append([ui.status_dot(status["status"]), status["source"],
+                         status["status"], c(detail, "dim")])
+        print(c("  Sources", "sea", bold=True))
+        print(table(["", "source", "status", "detail"], rows))
+
         documents = data.get("documents", [])
         if documents:
-            print(f"{BOLD}Evidence{RESET}")
+            print(c("  Evidence", "sea", bold=True))
         for i, doc in enumerate(documents, 1):
-            warn = " ⚠" + ",".join(doc.get("warnings", [])) if doc.get("warnings") else ""
-            print(f"  [{i}] {doc.get('title') or doc.get('url') or '(untitled)'}")
-            print(
-                f"      {DIM}{doc.get('source')} · {doc.get('trust')} · "
-                f"retrieved {doc.get('retrieved_at', '')[:19]}{warn}{RESET}"
-            )
-            snippet = (doc.get("content") or "").strip().replace("\n", " ")[:200]
+            title = doc.get("title") or doc.get("url") or "(untitled)"
+            print(bullet(f"{c(f'[{i}]', 'green')} {c(title, 'fg', bold=True)}"))
+            meta = (f"{doc.get('source')} · {doc.get('trust')} · "
+                    f"retrieved {doc.get('retrieved_at', '')[:19]}")
+            if doc.get("warnings"):
+                meta += " · " + ",".join(doc["warnings"])
+            print(f"      {c(meta, 'dim')}")
+            snippet = (doc.get("content") or "").strip().replace("\n", " ")[:180]
             if snippet:
                 print(f"      {snippet}")
-        print(f"{DIM}job={data.get('job_id')} · {len(documents)} documents{RESET}")
+        print(c(f"  job={data.get('job_id')} · {len(documents)} documents", "dim"))
 
     def handle_web(self, args: list[str]) -> None:
         if not args:
-            print("Usage: /web sources|status|search <query>|read <url>|transcript <url>")
+            print(error("Usage: /web sources|status|search <query>|read <url>|transcript <url>"))
             return
         sub, rest = args[0], args[1:]
 
         if sub == "sources":
             data = self._web_call("GET", "/v1/web/sources")
             if data:
+                rows = []
                 for src in data.get("sources", []):
                     health = src["health"]
-                    mark = GREEN + "●" if health["status"] == "healthy" else YELLOW + "○"
                     caps = ",".join(k for k, v in src["capabilities"].items() if v) or "-"
-                    print(
-                        f"  {mark} {src['name']:<14}{RESET}v{src['version']} · "
-                        f"{src['trust_level']} · {caps} · {health['status']}"
-                        + (f" ({health['detail']})" if health.get("detail") else "")
-                    )
+                    detail = health.get("detail") or ""
+                    rows.append([
+                        ui.status_dot(health["status"]), src["name"],
+                        f"v{src['version']}", src["trust_level"], caps,
+                        c(health["status"] + (f" · {detail[:40]}" if detail else ""), "dim"),
+                    ])
+                print(table(["", "adapter", "ver", "trust", "capabilities", "health"], rows))
         elif sub == "status":
             data = self._web_call("GET", "/v1/web/jobs")
             if data:
-                for job in data.get("jobs", []):
-                    print(
-                        f"  {job['created_at'][:19]}  {job['operation']:<11}"
-                        f"{job['status']:<10}{job['documents']} docs"
-                    )
+                print(table(
+                    ["when", "operation", "status", "docs"],
+                    [[j["created_at"][:19], j["operation"], j["status"],
+                      str(j["documents"])] for j in data.get("jobs", [])],
+                ))
         elif sub == "search":
             if not rest:
-                print("Usage: /web search <query>")
+                print(error("Usage: /web search <query>"))
                 return
             data = self._web_call("POST", "/v1/web/search", {"query": " ".join(rest)})
             if data:
                 self._print_web_result(data)
         elif sub == "read":
             if not rest:
-                print("Usage: /web read <url>")
+                print(error("Usage: /web read <url>"))
                 return
             data = self._web_call("POST", "/v1/web/read", {"url": rest[0]})
             if data:
                 self._print_web_result(data)
         elif sub == "transcript":
             if not rest:
-                print("Usage: /web transcript <url>")
+                print(error("Usage: /web transcript <url>"))
                 return
             data = self._web_call("POST", "/v1/web/transcript", {"url": rest[0]})
             if data:
                 self._print_web_result(data)
         else:
-            print(f"Unknown /web subcommand '{sub}' — try /help")
+            print(error(f"Unknown /web subcommand '{sub}' — try /help"))
 
     # -- workspaces & workflows (governed) ---------------------------------
 
-    def _governance_banner(self, execution: dict) -> None:
-        status = execution.get("status", "?").upper()
-        color = GREEN if status == "COMPLETED" else YELLOW
-        print(f"{GREEN}{BOLD}GOVERNED{RESET}")
-        print(f"  WORKSPACE : {execution.get('workspace_id', '?').upper()}")
-        print(f"  WORKFLOW  : {execution.get('workflow_id', '?').upper()}")
-        print(f"  STATUS    : {color}{status}{RESET}")
-        print(f"  TRACE     : {execution.get('trace_id')}")
-        print(f"  RISK      : {execution.get('risk', '?').upper()}")
-        print(f"  EVIDENCE  : {execution.get('evidence_count', 0)} SOURCES")
-        print(f"  CONFIDENCE: {execution.get('confidence')}")
-        approval = "REQUIRED" if execution.get("requires_approval") else "NOT REQUIRED"
-        print(f"  APPROVAL  : {approval}")
+    def _governance_panel(self, execution: dict) -> str:
+        status = execution.get("status", "?")
+        status_color = "green" if status == "completed" else "yellow"
+        approval = (
+            badge("REQUIRED", "yellow")
+            if execution.get("requires_approval")
+            else c("not required", "dim")
+        )
+        confidence = execution.get("confidence")
+        conf_str = "—" if confidence is None else f"{confidence:.2f}"
+        if isinstance(confidence, (int, float)):
+            blocks = int(round(confidence * 10))
+            conf_str += "  " + c("▰" * blocks, "green") + c("▱" * (10 - blocks), "dim")
+        return panel("GOVERNED", [
+            kv("workspace", c(str(execution.get("workspace_id", "?")).upper(), "fg", bold=True)),
+            kv("workflow", c(str(execution.get("workflow_id", "?")).upper(), "fg", bold=True)),
+            kv("status", badge(status.upper(), status_color)),
+            kv("risk", risk_badge(execution.get("risk", "informational"))),
+            kv("evidence", c(f"{execution.get('evidence_count', 0)} sources", "fg")),
+            kv("confidence", conf_str),
+            kv("approval", approval),
+            kv("trace", c(str(execution.get("trace_id")), "dim")),
+        ])
 
     def _print_execution(self, execution: dict) -> None:
-        self._governance_banner(execution)
-        for fact in execution.get("facts", [])[:12]:
-            print(f"  {DIM}fact{RESET} {fact.get('detail') or fact.get('name')}")
+        print(self._governance_panel(execution))
+        facts = execution.get("facts", [])
+        if facts:
+            print(c("  Computed facts", "sea", bold=True) + c("  (deterministic)", "dim"))
+            for fact in facts[:12]:
+                print(bullet(fact.get("detail") or f"{fact.get('name')} = {fact.get('value')}"))
         if execution.get("interpretation"):
-            print(f"{BOLD}Interpretation{RESET}\n{execution['interpretation'][:800]}")
+            print(c("  Interpretation", "sea", bold=True) + c("  (model, evidence-grounded)", "dim"))
+            text = execution["interpretation"][:700]
+            for line in text.splitlines()[:12]:
+                print("  " + line)
         if execution.get("recommendation"):
-            print(f"{BOLD}Recommendation{RESET}\n{execution['recommendation'][:400]}")
-        print(f"{DIM}execution={execution.get('id')} · "
-              f"{execution.get('latency_ms')}ms · ${execution.get('cost_usd')}{RESET}")
+            print(c("  Recommendation", "sea", bold=True))
+            print("  " + execution["recommendation"][:300])
+        print(c(
+            f"  execution={execution.get('id')} · {execution.get('latency_ms')}ms · "
+            f"${execution.get('cost_usd')}", "dim",
+        ))
 
     def _print_evidence(self, execution: dict) -> None:
-        print(f"{BOLD}Evidence{RESET} ({len(execution.get('evidence', []))})")
-        for i, ev in enumerate(execution.get("evidence", [])):
-            print(f"  [{i}] {ev.get('kind'):<12}{ev.get('source')} "
-                  f"{DIM}trust={ev.get('trust')}{RESET}")
-            if ev.get("excerpt"):
-                print(f"      {ev['excerpt'][:140]}")
-        print(f"{BOLD}Claims{RESET} ({len(execution.get('claims', []))})")
-        for claim in execution.get("claims", []):
-            print(f"  [{claim.get('category'):<15}] conf={claim.get('confidence')} "
-                  f"{str(claim.get('claim'))[:120]}")
+        evidence = execution.get("evidence", [])
+        print(c(f"  Evidence ({len(evidence)})", "sea", bold=True))
+        rows = []
+        for i, ev in enumerate(evidence):
+            rows.append([
+                c(f"[{i}]", "green"), ev.get("kind", "?"),
+                str(ev.get("source"))[:34],
+                c(str(ev.get("trust")), "dim"),
+                c((ev.get("excerpt") or "")[:56], "dim"),
+            ])
+        print(table(["", "kind", "source", "trust", "excerpt"], rows))
+        claims = execution.get("claims", [])
+        print(c(f"  Claims ({len(claims)})", "sea", bold=True))
+        category_colors = {"computation": "green", "fact": "green",
+                           "interpretation": "yellow", "recommendation": "sea"}
+        for claim in claims:
+            cat = claim.get("category", "?")
+            conf = c(f"conf={claim.get('confidence')}", "dim")
+            print(bullet(
+                f"{badge(cat, category_colors.get(cat, 'dim'))} {conf} "
+                f"{str(claim.get('claim'))[:100]}",
+                mark="",
+            ))
 
     def handle_workspace(self, args: list[str]) -> None:
         if not args or args[0] == "list":
             data = self._web_call("GET", "/v1/workspaces")
             if data:
+                rows = []
                 for ws in data.get("workspaces", []):
-                    active = " (active)" if ws["id"] == self.workspace else ""
-                    synth = " · synthetic demo" if ws.get("synthetic") else ""
-                    print(f"  {ws['id']:<14}{ws['name']} — {ws['domain']}{synth}{active}")
+                    marker = c("●", "green") if ws["id"] == self.workspace else c("·", "dim")
+                    rows.append([
+                        marker, ws["id"], ws["name"], ws["domain"],
+                        c("synthetic demo", "dim") if ws.get("synthetic") else "",
+                    ])
+                print(table(["", "id", "name", "domain", ""], rows))
         elif args[0] == "use" and len(args) > 1:
             data = self._web_call("GET", f"/v1/workspaces/{args[1]}")
             if data:
                 self.workspace = args[1]
-                print(f"Workspace: {data['name']} [{data['domain']}] — "
-                      f"workflows: {', '.join(w['id'] for w in data['workflows'])}")
+                print(success(
+                    f"Workspace {c(data['name'], 'fg', bold=True)} "
+                    f"{c('[' + data['domain'] + ']', 'dim')}"
+                ))
+                print(kv("workflows", c(", ".join(w["id"] for w in data["workflows"]), "fg")))
         elif args[0] == "status":
             if not self.workspace:
-                print("No active workspace — /workspace use <id> first.")
+                print(error("No active workspace — /workspace use <id> first."))
                 return
             data = self._web_call("GET", f"/v1/workspaces/{self.workspace}/overview")
             if data:
-                print(f"  sources            : {data['sources']}")
-                print(f"  pending approvals  : {data['pending_approvals']}")
-                print(f"  open reviews       : {data['open_reviews']}")
-                print(f"  blocked wf traces  : {data['blocked_workflow_traces']}")
-                for e in data.get("recent_executions", [])[:5]:
-                    print(f"  {e['created_at'][:19]}  {e['workflow_id']:<28}"
-                          f"{e['status']:<24}risk={e['risk']}")
+                print(panel(f"{self.workspace.upper()} · COMMAND CENTER", [
+                    kv("sources", str(data["sources"])),
+                    kv("approvals", f"{data['pending_approvals']} pending"),
+                    kv("reviews", f"{data['open_reviews']} open"),
+                    kv("blocked", f"{data['blocked_workflow_traces']} workflow traces"),
+                    kv("health", c(data["health"], "green")),
+                ]))
+                executions = data.get("recent_executions", [])[:5]
+                if executions:
+                    print(table(
+                        ["when", "workflow", "status", "risk"],
+                        [[e["created_at"][:19], e["workflow_id"], e["status"],
+                          risk_badge(e["risk"])] for e in executions],
+                    ))
         else:
-            print("Usage: /workspace list|use <id>|status")
+            print(error("Usage: /workspace list|use <id>|status"))
 
     def run_workflow(self, workflow_id: str, input_data: dict) -> None:
         if not self.workspace:
-            print("No active workspace — /workspace use <id> first.")
+            print(error("No active workspace — /workspace use <id> first."))
             return
         data = self._web_call(
             "POST", "/v1/workflows/run",
@@ -388,14 +462,18 @@ class HeliosTUI:
     def handle_workflow(self, args: list[str]) -> None:
         if not args or args[0] == "list":
             if not self.workspace:
-                print("No active workspace — /workspace use <id> first.")
+                print(error("No active workspace — /workspace use <id> first."))
                 return
             data = self._web_call("GET", f"/v1/workspaces/{self.workspace}/workflows")
             if data:
+                rows = []
                 for w in data.get("workflows", []):
                     required = ",".join(w.get("input_schema", {}).get("required", []))
-                    print(f"  {w['id']:<32}{w['name']}"
-                          + (f"  {DIM}input: {required}{RESET}" if required else ""))
+                    rows.append([
+                        c(w["id"], "green"), w["name"],
+                        c(f"input: {required}" if required else "", "dim"),
+                    ])
+                print(table(["workflow", "name", ""], rows))
         elif args[0] == "run" and len(args) > 1:
             input_data: dict = {}
             for pair in args[2:]:
@@ -409,12 +487,14 @@ class HeliosTUI:
                 path += f"?workspace_id={self.workspace}"
             data = self._web_call("GET", path)
             if data:
-                for e in data.get("executions", []):
-                    print(f"  {e['id'][:8]}  {e['created_at'][:19]}  "
-                          f"{e['workspace_id']}/{e['workflow_id']:<28}"
-                          f"{e['status']:<24}risk={e['risk']}")
+                print(table(
+                    ["id", "when", "workflow", "status", "risk"],
+                    [[e["id"][:8], e["created_at"][:19],
+                      f"{e['workspace_id']}/{e['workflow_id']}", e["status"],
+                      risk_badge(e["risk"])] for e in data.get("executions", [])],
+                ))
         else:
-            print("Usage: /workflow list|run <id> [k=v ...]|history")
+            print(error("Usage: /workflow list|run <id> [k=v ...]|history"))
 
     def handle_evolve(self, args: list[str]) -> None:
         if not args:  # run an analysis
@@ -422,24 +502,30 @@ class HeliosTUI:
             if data is not None:
                 created = data.get("created", [])
                 if not created:
-                    print("No new proposals — recent traffic shows no recurring failures.")
+                    print(c("  No new proposals — recent traffic shows no recurring failures.", "dim"))
                 for p in created:
-                    print(f"  {p['id'][:8]}  [{p['kind']}] {p['title']}")
-                    print(f"           evidence: {p['evidence']['occurrences']} traces")
+                    print(bullet(
+                        f"{c(p['id'][:8], 'green')} {badge(p['kind'], 'sea')} "
+                        f"{c(p['title'], 'fg')}"))
+                    occurrences = p["evidence"]["occurrences"]
+                    print("      " + c(f"evidence: {occurrences} traces", "dim"))
         elif args[0] == "list":
             data = self._web_call("GET", "/v1/evolution/proposals")
             if data:
-                for p in data.get("proposals", []):
-                    print(f"  {p['id'][:8]}  {p['status']:<12}[{p['kind']}] {p['title']}")
+                print(table(
+                    ["id", "status", "kind", "title"],
+                    [[p["id"][:8], p["status"], p["kind"], p["title"][:60]]
+                     for p in data.get("proposals", [])],
+                ))
         elif args[0] == "apply" and len(args) > 1:
             data = self._web_call(
                 "POST", f"/v1/evolution/proposals/{args[1]}/approve",
                 {"decided_by": os.environ.get("USER", "tui")},
             )
             if data:
-                print(f"{data['id'][:8]} -> {data['status']} (v{data['version']})")
+                print(success(f"{data['id'][:8]} → {data['status']} (v{data['version']})"))
         else:
-            print("Usage: /evolve [list|apply <id>]")
+            print(error("Usage: /evolve [list|apply <id>]"))
 
     # -- inference --------------------------------------------------------
 
@@ -447,37 +533,39 @@ class HeliosTUI:
         url = completion_endpoint(self.profile)
         headers = request_headers(self.profile)
 
-        if self.profile.mode == "helios":
+        if self.governed:
             payload = build_governed_payload(prompt, self.model)
         else:
             if not self.model:
-                print(f"{RED}No model selected — use /model <name> or /refresh.{RESET}")
+                print(error("No model selected — use /model <name> or /refresh."))
                 return
             payload = build_direct_payload(prompt, self.model, self.history)
 
         try:
-            response = httpx.post(
-                url, json=payload, headers=headers, timeout=self.profile.timeout_s
-            )
+            with Spinner("thinking"):
+                response = httpx.post(
+                    url, json=payload, headers=headers, timeout=self.profile.timeout_s
+                )
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPStatusError as exc:
-            print(f"{RED}HTTP {exc.response.status_code}: {exc.response.text[:500]}{RESET}")
+            print(error(f"HTTP {exc.response.status_code}: {exc.response.text[:400]}"))
             return
         except httpx.HTTPError as exc:
-            print(f"{RED}Request failed: {exc}{RESET}")
+            print(error(f"Request failed: {exc}"))
             return
 
-        if self.profile.mode == "helios":
+        if self.governed:
             result = extract_governed_output(data)
             print(result["output"])
             meta = (
-                f"trace={result['trace_id']} model={result['model']} "
-                f"cost=${result['cost_usd']} latency={result['latency_ms']}ms"
+                f"trace={result['trace_id']} · "
+                f"{result['model'].get('provider')}:{result['model'].get('model_id')} · "
+                f"${result['cost_usd']} · {result['latency_ms']}ms"
             )
             if result["citations"]:
-                meta += f" citations={len(result['citations'])}"
-            print(f"{DIM}{meta}{RESET}")
+                meta += f" · {len(result['citations'])} citations"
+            print(c("  " + meta, "dim"))
         else:
             output = extract_direct_output(data)
             print(output)
@@ -487,14 +575,17 @@ class HeliosTUI:
     # -- main loop --------------------------------------------------------
 
     def run(self) -> None:
-        print(f"{BOLD}Helios{RESET} — terminal agent interface")
-        print(f"Gateway {CYAN}{self.profile.name}{RESET} [{self.mode_badge()}] — /help for commands\n")
+        mode = "GOVERNED" if self.governed else "DIRECT"
+        print(ui.banner(
+            "Governed AI Command Center",
+            f"gateway {self.profile.name} · {mode} · /help for commands · {KEYS_HINT}",
+        ))
 
         while True:
             try:
                 line = input(self.prompt_str()).strip()
             except (EOFError, KeyboardInterrupt):
-                print("\nBye.")
+                print("\n" + c("  Bye.", "dim"))
                 return
 
             if not line:
