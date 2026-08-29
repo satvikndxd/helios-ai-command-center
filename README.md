@@ -230,19 +230,11 @@ change.
 make demo    # seeds all three workspaces + runs one workflow each (synthetic data)
 ```
 
-```text
-helios:auto ❯ /workspace use engineering
-helios:auto ❯ /workflow run test_run_comparison run_a=104 run_b=105
-GOVERNED
-  WORKSPACE : ENGINEERING      RISK      : HIGH
-  WORKFLOW  : TEST_RUN_COMPARISON
-  TRACE     : 4264edad-…       EVIDENCE  : 14 SOURCES
-  STATUS    : COMPLETED        CONFIDENCE: 0.9
-  APPROVAL  : REQUIRED
-  fact max_temp_c: 48.2 -> 61.3 (+13.1 abs, +27.18%)
-  fact cooling_flow_lpm: 14.2 -> 8.9 (-5.3 abs, -37.32%)
-  fact max_temp_c=61.3 above_max limit 60.0; cooling_flow_lpm=8.9 below_min limit 10.0
-```
+<p align="center">
+  <img src="assets/screenshots/tui-workflow.svg" alt="Governed workflow run in the Helios TUI — deterministic facts, risk badge, confidence bar, approval gate" width="860">
+</p>
+
+<p align="center"><sub><em>A real captured session: <code>/workflow run test_run_comparison run_a=104 run_b=105</code> — deterministic facts, config-driven HIGH risk, approval gate, trace ID.</em></sub></p>
 
 Full guide — workspace/workflow/source/evidence models, risk & approval
 model, how to add a domain: [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
@@ -258,27 +250,19 @@ export HELIOS_API_KEY="<key from make seed>"
 PYTHONPATH=src python -m helios.tui --gateway helios     # or: make tui
 ```
 
-```text
-Helios — terminal agent interface
-Gateway helios [GOVERNED] — /help for commands
+<p align="center">
+  <img src="assets/screenshots/tui-home.svg" alt="Helios TUI — workspace and workflow discovery" width="860">
+</p>
 
-helios:auto ❯ /web search complaints about product X
-Sources
-  ✓ reddit        ok · 12 results
-  ⚠ x             rate_limited · upstream 429
-  ✓ github        ok · 9 results
-Evidence
-  [1] Example discussion
-      reddit · untrusted_external_content · retrieved 2026-08-26T12:03
-job=9f2c…  · 21 documents
+<p align="center">
+  <img src="assets/screenshots/tui-evidence.svg" alt="Helios TUI — evidence and claims view with provenance and reasoning categories" width="860">
+</p>
 
-helios:auto ❯ /evolve
-  a5a87be5  [routing_fallback] Demote provider 'unknown' after 3 failures
-           evidence: 3 traces
+<p align="center">
+  <img src="assets/screenshots/tui-web.svg" alt="Helios TUI — governed web access source registry with health and trust levels" width="860">
+</p>
 
-helios:auto ❯ /evolve apply a5a87be5
-a5a87be5 -> applied (v1)
-```
+<p align="center"><sub><em>All screenshots are real captured TUI sessions, rendered by <code>scripts/ansi_to_svg.py</code>.</em></sub></p>
 
 | Command group | Commands |
 |---|---|
