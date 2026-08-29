@@ -1,0 +1,38 @@
+{
+  "name": "helios-command-center",
+  "version": "1.0.0",
+  "description": "Helios — Governed AI Command Center. One governed AI runtime, multiple enterprise workflows. npx wrapper around the native installer.",
+  "bin": {
+    "helios": "bin/helios.js"
+  },
+  "files": [
+    "bin/",
+    "install.sh",
+    "src/",
+    "tests/",
+    "docs/",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "governance",
+    "llm",
+    "terminal",
+    "workflows"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/satvikndxd/helios-ai-command-center.git"
+  },
+  "license": "MIT"
+}

@@ -135,6 +135,38 @@ self-improvement, gated by humans.
 
 ## 🚀 Quick start
 
+### One command (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/satvikndxd/helios-ai-command-center/main/install.sh | bash
+```
+
+or, with npm:
+
+```bash
+npx github:satvikndxd/helios-ai-command-center
+```
+
+Either command installs everything under `~/.helios` (Python 3.11+ venv, no
+sudo), puts a `helios` launcher on your PATH, seeds the three synthetic demo
+workspaces, and prints your API key. Then:
+
+```bash
+helios up                        # API :8000 + eval worker in the background
+export HELIOS_API_KEY=<key printed by the installer>
+helios tui                       # /workspace use engineering
+```
+
+| Launcher command | Does |
+|---|---|
+| `helios demo` | (Re)seed the synthetic workspaces + print an API key |
+| `helios up` / `helios down` | Start/stop the API + eval worker in the background |
+| `helios tui` | Open the terminal agent (GOVERNED by default) |
+| `helios api` / `helios worker` | Run either process in the foreground |
+| `helios test` | Run the full offline suite (isolated throwaway DB) |
+| `helios update` | Pull the latest main and reinstall |
+| `helios <anything else>` | Forwards to the CLI (`create-api-key`, `gateway-add`, …) |
+
 ### Docker (Postgres + API + workers)
 
 ```bash
