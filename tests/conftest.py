@@ -6,6 +6,11 @@ import tempfile
 _tmp_db = os.path.join(tempfile.mkdtemp(prefix="helios-test-"), "helios.sqlite3")
 os.environ.setdefault("HELIOS_DATABASE_URL", f"sqlite:///{_tmp_db}")
 os.environ.setdefault("HELIOS_DEFAULT_PROVIDER", "mock")
+# Jail agent tools to a throwaway workspace for the whole suite.
+os.environ.setdefault(
+    "HELIOS_WORKSPACE_ROOT",
+    os.path.join(tempfile.mkdtemp(prefix="helios-test-"), "workspace"),
+)
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
