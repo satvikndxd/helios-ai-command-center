@@ -847,3 +847,114 @@ class WorkflowExecution(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# --- V1 control plane: agent runtime + hierarchical trace -------------------
+
+
+class AgentSession(Base):
+    """
+    A persistent agent session: identity, model, environment, permission
+    grants, and conversation state. Survives terminal closure; can be
+    resumed or forked.
+    """
+
+    __tablename__ = "agent_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="session")
+    agent_id: Mapped[str] = mapped_column(String(100), nullable=False, default="helios-agent")
+    user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    environment: Mapped[str] = mapped_column(String(20), nullable=False, default="dev")
+    autonomy: Mapped[str] = mapped_column(String(20), nullable=False, default="supervised")
+    model_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="mock")
+    model_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Permission grants (JSON list of grant dicts) — the agent's reach.
+    grants: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    # Conversation history: [{"role", "content"}, ...]
+    messages: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    # Session-scoped approvals: [{"tool": ..., "granted_by": ..., "at": ...}]
+    session_approvals: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    forked_from: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active"
+    )  # active | archived
+    policy_version: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="helios-default-v1"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AgentRun(Base):
+    """
+    One agent run (a user message driven to completion) with an explicit
+    state machine:
+
+        thinking | planning | tool_pending | awaiting_approval | running |
+        blocked | completed | failed | cancelled
+    """
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_sessions.id"), nullable=False, index=True
+    )
+    state: Mapped[str] = mapped_column(String(30), nullable=False, default="thinking", index=True)
+    input_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    output_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    # When awaiting approval: the exact pending tool call + approval id.
+    pending: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    steps: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class TraceEvent(Base):
+    """
+    One node in the hierarchical decision trace of an agent run.
+
+    event_type: model_call | tool_proposal | permission_evaluation |
+                risk_evaluation | policy_evaluation | approval |
+                tool_execution | state_change | outcome | external_span
+    """
+
+    __tablename__ = "trace_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    parent_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    payload: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    risk: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="ok")
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
