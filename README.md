@@ -1,544 +1,305 @@
 <div align="center">
 
-<img src="assets/helios-banner.svg" alt="Helios — Enterprise AI Command Center" width="880">
+<img src="assets/helios-banner.svg" alt="HELIOS" width="880">
 
 <br/><br/>
 
-<img alt="Release" src="https://img.shields.io/badge/release-MVP-00E676?style=flat-square&labelColor=0A1A0F">
+# HELIOS
+## The control plane for AI agents.
+
+**Give agents access to your tools without giving them unrestricted access to your company.**
+
+<br/>
+
 <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-00E676?style=flat-square&labelColor=0A1A0F">
-<img alt="Tests" src="https://img.shields.io/badge/tests-106_passing_in_~4s-34D399?style=flat-square&labelColor=0A1A0F">
-<img alt="Dependencies" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
-<img alt="Status" src="https://img.shields.io/badge/status-stable-00E676?style=flat-square&labelColor=0A1A0F">
-
-<br/><br/>
-
-**One governed AI runtime. Multiple enterprise workflows.**
-A terminal-first AI agent that can use any model, any OpenAI-compatible gateway,
-and any approved tool — while recording, evaluating, and governing every meaningful action.
-Domain workspaces (Engineering · Software · Finance) run on the same runtime:
-*the domain changes, the governance does not.*
-
-[Quick start](#-quick-start) ·
-[Workspaces & workflows](#-domain-workspaces--governed-workflows) ·
-[Terminal agent](#-terminal-first-agent-interface) ·
-[Gateways](#-universal-gateway-connectivity) ·
-[Web access](#-governed-web-access) ·
-[Actions & approvals](#-agent-actions-approvals-and-idempotency) ·
-[Self-evolution](#-self-evolving-agents) ·
-[Security](#-security-model) ·
-[Results](#-measured-results) ·
-[Docs](#-documentation)
+<img alt="Tests" src="https://img.shields.io/badge/tests-138_passing_in_~5s-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="Runtime deps" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="License" src="https://img.shields.io/badge/license-MIT-00E676?style=flat-square&labelColor=0A1A0F">
 
 </div>
 
 ---
 
-## Why Helios
+AI agents are useful exactly when they can touch real things — your repos, your
+shell, your filesystem, your APIs. That is also exactly when they are dangerous.
+HELIOS sits between the agent and the world:
 
-Every AI platform can call a model. Almost none can answer the questions that
-matter in production: **what did the agent actually do, why was it allowed,
-what did it cost, was the answer grounded, and who approved the risky part?**
-
-Helios is an enterprise AI command center built governance-first, then wrapped
-in a developer experience that feels like a modern coding agent:
-
-- **Every decision is a trace.** Model calls, retrievals, policy verdicts,
-  routing chains, web fetches, MCP calls, browser events, approvals — one
-  auditable record per decision, tenant-isolated.
-- **Policy gates actions, not just text.** Write operations are typed,
-  approval-bound to an exact payload hash, and idempotent. Web content is
-  evidence, never authority.
-- **The system improves itself — under human control.** Helios mines its own
-  failures into typed improvement proposals with evidence, and a human holds
-  the apply/rollback gate.
-- **Zero-ceremony local start.** SQLite + mock providers run the entire
-  platform — all 83 tests, the API, the worker, and the TUI — with no
-  external services and no API keys.
-
-## At a glance
-
-| | |
-|---|---|
-| 🏭 **Domain workspaces** | Engineering, Software, Finance packs on one workflow engine: sources → deterministic analysis → grounded reasoning → evidence → risk → approval → trace |
-| 🖥️ **Terminal agent** | GOVERNED / DIRECT modes, 26-gateway catalog, dynamic model discovery, `/workspace` + `/workflow`, `/web` research, `/approvals`, `/evolve` |
-| 🛡️ **Safety plane** | PII redaction, prompt-injection quarantine (inputs, RAG docs, web pages, MCP results), policy-as-code, blocked-decision traces |
-| 🌐 **Web access broker** | Policy preflight → adapter fallback → sanitization → provenance; failure honesty is structural |
-| 🔌 **MCP governance** | Trust lifecycle, tool allowlists, per-call budgets, version pinning with drift detection |
-| 🍪 **Browser sessions** | Encrypted cookie vault (fail-closed), per-session domain allowlists, event audit, approval-gated authenticated reads |
-| ✅ **Approvals & idempotency** | Typed action registry, payload-hash-bound approvals, effect journal — retries replay, never re-execute |
-| 🧬 **Self-evolution** | Failure mining → clustered evidence → typed proposals → human gate → versioned apply + rollback |
-| 📊 **Quality loop** | Async evaluation, groundedness scoring, human review queue, dataset factory, traffic-replay simulator |
-
-## Architecture
-
-```mermaid
-flowchart LR
-    U[Developer] --> TUI[Helios TUI<br/>GOVERNED / DIRECT]
-    TUI --> GW[AI Gateway<br/>/v1/ai/complete]
-
-    subgraph CONTROL[Control Plane]
-        GW --> SEN[Sentinel<br/>PII · injection]
-        GW --> POL[Policy Engine]
-        GW --> RTR[Router v2<br/>registry · fallback]
-        GW --> TRC[(DecisionTraces)]
-        POL --> APQ[Approval Queue]
-        EVO[Evolution Engine] --> APQ
-        TRC --> EVO
-    end
-
-    RTR --> PROV[Providers<br/>mock · groq · openrouter<br/>gemini · openai · anthropic]
-    GW --> RAG[Tenant-isolated RAG<br/>pgvector]
-
-    GW --> WAB[Web Access Broker]
-    subgraph EXEC[Untrusted Execution Plane]
-        WAB --> HTTP[HTTP / RSS / GitHub<br/>Reddit / YouTube]
-        WAB --> MCPW[MCP Broker<br/>allowlist · budgets]
-        WAB --> BRW[Browser Worker<br/>cookie vault]
-        HTTP --> SAN[Sanitizer<br/>trust · injection · secrets]
-        MCPW --> SAN
-        BRW --> SAN
-        SAN --> WAB
-    end
-
-    TRC --> WK[Async Eval Worker<br/>SKIP LOCKED queue]
-    WK --> REV[Review Queue]
-    REV --> DS[Dataset Factory]
-    DS --> SIM[Simulator<br/>replay · canary verdicts]
-    SIM --> EVO
+```
+                      AGENT
+                        │  proposes a tool call
+                        ▼
+       ┌────────────── HELIOS ──────────────┐
+       │  identity / context                │   who is acting, where, for whom
+       │  permission evaluation             │   scoped grants + resource constraints
+       │  action risk evaluation            │   contextual: same tool ≠ same risk
+       │  policy decision                   │   ALLOW · DENY · REQUIRE_APPROVAL
+       │  human approval (when required)    │   bound to the exact payload hash
+       └────────────────┬───────────────────┘
+                        ▼
+                      TOOLS                     filesystem · shell · git · GitHub · HTTP · MCP
+                        │
+                        ▼
+              immutable decision trace  →  replay / evaluation
 ```
 
-Design rule inherited from the spec: **visibility first**, then evaluation,
-grounding, safety, optimization, continuous improvement — and now
-self-improvement, gated by humans.
+**No model-generated action executes directly.** Every tool invocation flows
+through the Tool Broker — the single execution boundary — and leaves a
+hierarchical decision trace that can answer, later: *what happened, who
+initiated it, why was it allowed, who approved it, what actually executed,
+what did it cost.*
 
-## Platform matrix
+---
 
-| Pillar | Capabilities | Status |
-|---|---|---|
-| **AI Gateway** | Unified `/v1/ai/complete`, API-key auth, tenant/app model, request normalization, cost + latency metering, error traces | ✅ shipped |
-| **Decision traces** | Full request/response/policy/routing/eval persistence, tenant-isolated `/v1/traces` | ✅ shipped |
-| **Async evaluation** | Postgres `FOR UPDATE SKIP LOCKED` queue, horizontally-scalable workers, heuristic evaluators | ✅ shipped |
-| **Grounded RAG** | pgvector, single-transaction ingestion, tenant isolation *before* distance calc, citations, poisoned-doc defense | ✅ shipped |
-| **Safety (Sentinel + policy)** | PII detect/redact, injection detection, output leak scans, policy-as-code preflight & output gates | ✅ shipped |
-| **Routing** | Model registry, explainable decisions, ordered fallback chains, cost guardrails | ✅ shipped |
-| **Quality loop** | Groundedness/hallucination scoring, review queue, feedback, dataset lineage (`v1 → v2`), traffic-replay simulator | ✅ shipped |
-| **Knowledge graph** | Typed entity extraction, dedup, `mentioned_in` provenance, traversal API | ✅ shipped |
-| **Terminal agent (TUI)** | GOVERNED/DIRECT modes, gateway catalog, `/models` discovery, web research, approvals, evolution | ✅ shipped |
-| **Web access — read path** | Broker, policy preflight, 6 adapters, sanitization, per-source failure honesty, audit jobs | ✅ shipped (W1) |
-| **MCP governance** | Server registration, trust lifecycle, tool filtering, budgets, version-drift detection | ✅ shipped (W2) |
-| **Browser sessions** | Encrypted vault, domain allowlists, event audit, approval-gated authenticated reads (read-only) | ✅ shipped (W3) |
-| **Actions & approvals** | Typed registry, payload-bound approvals, idempotent effect journal, scheduled research watches | ✅ shipped (W4) |
-| **Self-evolution** | Failure mining (incl. workflow failures), clustering, typed proposals, human gate, versioned apply/rollback | ✅ shipped |
-| **Workflow engine** | Reusable governed pipeline: sources → deterministic analysis → RAG → reasoning → evidence → risk → approval → trace; explicit `insufficient_evidence` | ✅ shipped |
-| **Domain workspaces** | Engineering, Software Engineering, Finance/Operations packs — configuration-driven, synthetic demo data, `make demo` | ✅ shipped |
-| **Enterprise track** | Kafka/ClickHouse, OPA, Neo4j, SSO/OIDC + RBAC, SDKs, streaming, K8s | 🗺️ [roadmap](docs/YC27_TECHNICAL_CHECKLIST.md) |
+## Sixty seconds of HELIOS
 
-## 🚀 Quick start
+```console
+$ helios                       # starts the control plane, opens the governed agent
 
-### One command (macOS / Linux)
+you › fix the flaky timeout test and merge the fix
+
+  [THINKING]
+    → github.get_repo {"repo": "acme/api"}
+      risk [LOW] read operation
+      policy [ALLOW] low/medium-risk action within granted permissions
+      [OK]
+    → fs.write {"path": "tests/test_timeout.py", ...}
+    → shell.run {"command": "pytest tests/test_timeout.py"}
+    → git.branch {"name": "agent/fix-timeout"}   → git.commit → github.create_pr
+  [AWAITING APPROVAL] github.merge_pr requires human approval
+
+┌─[ APPROVAL REQUIRED ]───────────────────────────────────────────┐
+│  agent        helios-agent                                      │
+│  tool         github.merge_pr                                   │
+│  github.repo  acme/api                                          │
+│  github.base  main                                              │
+│  environment  production                                        │
+│  risk         [CRITICAL] score 0.95                             │
+│               – write operation                                 │
+│               – production environment                          │
+│               – protected branch 'main'                         │
+│  policy       helios-default-v1 · rule approval_for_high_risk   │
+│  why          high/critical-risk actions require human approval │
+│  trace        run c24b6cd8…                                     │
+└─────────────────────────────────────────────────────────────────┘
+  [a]pprove  [d]eny  [s]ession-approve  [i]nspect  [l]ater
+```
+
+A `github.read_file` sails through as **LOW** risk. A `github.merge_pr` into a
+protected branch in production is **CRITICAL** and stops for a human. Same
+agent, same tools — the *context* decides. Approve it and HELIOS executes
+exactly the payload you approved (approvals are bound to a SHA-256 of the
+action + arguments; if the agent mutates the payload, the approval is void).
+
+---
+
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/satvikndxd/helios-ai-command-center/main/install.sh | bash
+helios
 ```
 
-or, with npm:
+No sudo, everything under `~/.helios`, SQLite by default, works over SSH.
+Under two minutes on a clean machine. Zero API keys required to try it — the
+built-in `scripted`/`mock` providers run the entire governed loop offline.
+
+Connect the real world when ready:
 
 ```bash
-npx github:satvikndxd/helios-ai-command-center
+export HELIOS_GROQ_API_KEY=...            # or OPENAI / ANTHROPIC / GEMINI / OPENROUTER
+export HELIOS_AGENT_PROVIDER=groq
+export HELIOS_GITHUB_TOKEN=ghp_...        # for the github.* tools
+export HELIOS_GITHUB_REPO=you/yourrepo    # the ONE repo this agent may touch
+helios
 ```
 
-Either command installs everything under `~/.helios` (Python 3.11+ venv, no
-sudo), puts a `helios` launcher on your PATH, seeds the three synthetic demo
-workspaces, and prints your API key. Then:
+---
+
+## The five primitives
+
+### 1 · Agent runtime
+
+Persistent sessions that survive terminal closure; resume or fork them.
+Every run is an explicit state machine — the TUI never shows a blocked agent
+as a generic spinner:
+
+```
+thinking · planning · tool_pending · running · awaiting_approval · blocked
+completed · failed · cancelled
+```
+
+`/sessions` `/session <id>` `/trace <run>` `/replay <run>` `/resume` `/cancel`
+
+### 2 · Tool Broker — the execution boundary
+
+Every tool publishes a declarative manifest: name, version, owner, capability,
+input/output schema, base risk class, permission scopes, resource fields,
+network requirements, approval level, idempotency, provenance. No manifest, no
+execution. The broker validates arguments, evaluates permissions → risk →
+policy, gates on approval, journals effects under idempotency keys (safe
+retry, no duplicate merges), and sanitizes every result.
+
+P0 tools: `fs.*` (workspace-jailed) · `shell.run` (no shell expansion,
+secret-stripped env, hard timeout) · `git.*` · `github.*` (real REST) ·
+`http.get` (domain allowlist) · `mcp.call` (trust-gated MCP).
+
+### 3 · Permissions — scopes with resource constraints
+
+Not a boolean allow/deny matrix:
+
+```json
+{"scope": "github.merge",   "constraints": [{"field": "github.repo",   "op": "eq", "value": "acme/api"}]}
+{"scope": "git.write",      "constraints": [{"field": "git.branch",    "op": "ne", "value": "main"}]}
+{"scope": "filesystem.write","constraints": [{"field": "filesystem.path","op": "prefix", "value": "/workspace"}]}
+```
+
+Grants understand organization, project, environment, agent identity, user
+identity, tool, resource, and data class. Deny by default; path traversal is
+normalized before the prefix check and re-checked in the executor.
+
+### 4 · Contextual risk + versioned policy
+
+Risk is computed from tool × arguments × target × environment × actor, not
+from the tool name:
+
+```json
+{"risk": "critical", "score": 0.95, "reasons": [
+  "write operation", "production environment", "protected branch 'main'"]}
+```
+
+Policies are ordered rule sets — versioned, serializable, deterministic,
+first-match-wins, default-deny. Every decision carries the rule that fired and
+a full explanation, and is written to the trace:
+
+```
+DENY · rule deny_autonomous_production_writes
+reason: production write forbidden for autonomous agents
+```
+
+### 5 · Approval + audit
+
+The approval binds to the exact payload hash — *approve action A, mutate
+payload, execute action B* is structurally impossible. Approvers can deny,
+approve once, approve for the session, or (for tools that allow it) edit the
+arguments — which re-binds the approval to the edited payload. Every run is
+one hierarchical trace:
+
+```
+agent_run
+ ├── model_call
+ ├── tool_proposal
+ │    ├── permission_evaluation
+ │    ├── risk_evaluation
+ │    ├── policy_evaluation
+ │    ├── approval
+ │    └── tool_execution
+ ├── state_change
+ └── outcome
+```
+
+Secrets are scrubbed before anything is persisted. Tool output is treated as
+untrusted input: prompt-injection patterns are flagged (and withheld entirely
+for network tools) — a tool result can never override policy.
+
+---
+
+## Replay — govern the past against tomorrow's policy
+
+Any recorded run can be re-evaluated against the same policy, a newer one, or
+a candidate document — nothing executes, everything is compared:
+
+```console
+you › /replay c079de31 candidate-strict-v2
+
+┌─[ REPLAY ]──────────────────────────────────────┐
+│  policy      candidate-strict-v2                │
+│  proposals   7                                  │
+│  original    {"executed": 6, "approval": 1}     │
+│  candidate   {"executed": 4, "denied": 1,       │
+│               "approval_required": 2}           │
+└─────────────────────────────────────────────────┘
+  • fs.write  executed → approval_required  (candidate: all writes need approval)
+```
+
+Test a policy change against last month's real agent traffic before deploying it.
+
+## External agents — observe what you didn't build
+
+HELIOS also ingests OpenTelemetry-shaped traces from agents that were *not*
+built on HELIOS:
 
 ```bash
-helios up                        # API :8000 + eval worker in the background
-export HELIOS_API_KEY=<key printed by the installer>
-helios tui                       # /workspace use engineering
+curl -X POST localhost:8000/v1/ingest/otel -H "X-Helios-API-Key: $KEY" \
+  -d '{"resourceSpans": [...]}'    # spans land in the same trace store
 ```
 
-| Launcher command | Does |
-|---|---|
-| `helios demo` | (Re)seed the synthetic workspaces + print an API key |
-| `helios up` / `helios down` | Start/stop the API + eval worker in the background |
-| `helios tui` | Open the terminal agent (GOVERNED by default) |
-| `helios api` / `helios worker` | Run either process in the foreground |
-| `helios test` | Run the full offline suite (isolated throwaway DB) |
-| `helios update` | Pull the latest main and reinstall |
-| `helios <anything else>` | Forwards to the CLI (`create-api-key`, `gateway-add`, …) |
+## API surface
 
-### Docker (Postgres + API + workers)
+```
+POST /v1/agent/sessions                GET  /v1/agent/sessions/{id}
+POST /v1/agent/sessions/{id}/messages  POST /v1/agent/sessions/{id}/fork
+GET  /v1/agent/runs/{id}/events        POST /v1/agent/runs/{id}/cancel|resume|retry|replay
+POST /v1/agent/approvals/{id}/decide   GET  /v1/approvals?status=pending
+GET  /v1/tools                         POST /v1/tools/invoke
+GET  /v1/policies                      POST /v1/ingest/otel
+```
+
+Everything the TUI does goes through this API — build your own surface on it.
+
+---
+
+## Security model
+
+- **Single execution boundary** — no code path executes a tool outside the broker; unknown tools are denied at the manifest gate.
+- **Deny by default** — no grant, no rule, no execution.
+- **Payload-bound approvals** — SHA-256 over `{action, args}`; tampering invalidates.
+- **Idempotency journal** — retries replay the recorded effect instead of re-executing.
+- **Workspace jail** — filesystem/shell/git operate under one root; `../` and symlink escapes blocked at two layers.
+- **Secret hygiene** — subprocess env stripped of `*KEY*/*TOKEN*/*SECRET*`; secrets scrubbed from tool output *and* from every trace payload.
+- **Untrusted tool output** — injection patterns flagged; external content quarantined; instructions in tool results are data, never commands.
+- **Tenant isolation** — every query is tenant-scoped; sessions, runs, traces, approvals never cross tenants.
+
+Each of these boundaries has tests (`tests/test_tool_broker.py`,
+`tests/test_agent_runtime.py`), including a full end-to-end flagship test:
+read → edit → test → branch → PR → merge request → CRITICAL → approval →
+execution → complete trace.
+
+## Model & gateway abstraction
+
+Bring any model: OpenAI-compatible endpoints (Groq, OpenRouter, Together,
+local Ollama/vLLM/LM Studio, …), Anthropic, Gemini, or custom gateway
+profiles with dynamic model discovery (`/refresh`) and router fallback
+chains. Credentials are referenced by env-var name and never stored. The
+abstraction is the point — provider count is not.
+
+## Also in the box (supporting capabilities)
+
+Kept deliberately off the critical path: governed completions with PII/injection
+sentinel + RAG grounding, an evaluation worker (groundedness, refusal, latency)
+with a human review queue, governed web research adapters, MCP server registry
+with trust gating and budgets, encrypted browser sessions, domain workflow
+packs (Engineering/Software/Finance demos), and a human-gated self-improvement
+proposal loop. See [docs/](docs/).
+
+## Development
 
 ```bash
-docker compose up --build          # pgvector Postgres + API + eval worker
-make seed                          # prints a fresh API key
-KEY=<paste-key> make curl-complete
+git clone https://github.com/satvikndxd/helios-ai-command-center && cd helios-ai-command-center
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+PYTHONPATH=src .venv/bin/pytest tests -q        # 138 tests, ~5s, no network, no Postgres
+PYTHONPATH=src .venv/bin/uvicorn helios.main:app  # SQLite by default
 ```
 
-### Local (SQLite, zero services, zero API keys)
-
-```bash
-export HELIOS_DATABASE_URL="sqlite:////tmp/helios.sqlite3"
-export PYTHONPATH=src
-python -m helios.cli create-api-key --tenant acme --app support   # prints a key
-python -m uvicorn helios.main:app --reload
-```
-
-```bash
-curl -s -X POST http://localhost:8000/v1/ai/complete \
-  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"input": "Hello Project Helios"}'
-```
-
-Interactive API docs: `http://localhost:8000/docs` · Tests:
-`PYTHONPATH=src python -m pytest -q` → **83 passed in ~2s**, fully offline.
-
-## 🏭 Domain workspaces & governed workflows
-
-> **One governed AI runtime. Multiple enterprise workflows.**
-> **The domain changes. The governance does not.**
-
-The workflow layer adapts Helios to different enterprise domains without a
-separate AI architecture per industry. Three reference workspaces (all
-**synthetic demo data**) run on one engine:
-
-| Workspace | Workflows | Deterministic core |
-|---|---|---|
-| **Engineering** | test-run comparison · incident investigation · daily brief · knowledge assistant | parameter deltas, threshold violations, anomaly flags, incident correlation |
-| **Software Engineering** | deployment-failure investigation · release risk analysis · daily brief | commit diffs between deploys, CI error extraction, incident-prone-service checks |
-| **Finance / Operations** | invoice compliance review · operations brief | procurement-policy rule checks, duplicate detection, aggregation (no payment actions exist) |
-
-Every execution follows the same pipeline through the **existing** governance
-stack — Sentinel, policy, router, traces, evaluation, approvals, idempotent
-actions:
-
-```text
-SOURCES → DETERMINISTIC ANALYSIS → WORKSPACE-SCOPED RAG → AI REASONING
-   → EVIDENCE + PROVENANCE → RISK CLASSIFICATION → POLICY
-   → HUMAN APPROVAL (when required) → TYPED ACTION → DECISION TRACE
-```
-
-The architecture strictly separates **COMPUTED FACT** (deterministic code:
-`max_temp_c: 48.2 → 61.3, +27.18%`) from **AI INTERPRETATION** (grounded in
-the facts block) from **RECOMMENDATION** (config-driven risk rules + approval
-gates). No sources → explicit `insufficient_evidence`, confidence 0.0, no AI
-call — never fabrication. The engine contains zero industry conditionals
-(enforced by a test); adding a domain is a configuration pack, not a core
-change.
-
-```bash
-make demo    # seeds all three workspaces + runs one workflow each (synthetic data)
-```
-
-<p align="center">
-  <img src="assets/screenshots/tui-workflow.svg" alt="Governed workflow run in the Helios TUI — deterministic facts, risk badge, confidence bar, approval gate" width="860">
-</p>
-
-<p align="center"><sub><em>A real captured session: <code>/workflow run test_run_comparison run_a=104 run_b=105</code> — deterministic facts, config-driven HIGH risk, approval gate, trace ID.</em></sub></p>
-
-Full guide — workspace/workflow/source/evidence models, risk & approval
-model, how to add a domain: [docs/WORKFLOWS.md](docs/WORKFLOWS.md).
-
-## 🖥️ Terminal-first agent interface
-
-A fast, agent-centric REPL — not an API administration panel. The governed
-route is always visibly marked **GOVERNED**; direct gateways are marked
-**DIRECT** so you know exactly when Helios governance is bypassed.
-
-```bash
-export HELIOS_API_KEY="<key from make seed>"
-PYTHONPATH=src python -m helios.tui --gateway helios     # or: make tui
-```
-
-<p align="center">
-  <img src="assets/screenshots/tui-home.svg" alt="Helios TUI — workspace and workflow discovery" width="860">
-</p>
-
-<p align="center">
-  <img src="assets/screenshots/tui-evidence.svg" alt="Helios TUI — evidence and claims view with provenance and reasoning categories" width="860">
-</p>
-
-<p align="center">
-  <img src="assets/screenshots/tui-web.svg" alt="Helios TUI — governed web access source registry with health and trust levels" width="860">
-</p>
-
-<p align="center"><sub><em>All screenshots are real captured TUI sessions, rendered by <code>scripts/ansi_to_svg.py</code>.</em></sub></p>
-
-| Command group | Commands |
-|---|---|
-| Session | `/help` `/status` `/clear` `/quit` |
-| Models & gateways | `/gateway` `/connect` `/model` `/models` `/refresh` |
-| Workspaces | `/workspace list\|use\|status` `/workflow list\|run\|history` `/brief` `/evidence` |
-| Web research | `/web sources` `/web status` `/web search` `/web read` `/web transcript` |
-| Governance | `/approvals` `/approve <id>` `/deny <id>` |
-| Self-evolution | `/evolve` `/evolve list` `/evolve apply <id>` |
-
-Every governed turn prints its `trace_id`, model, cost, latency, and citation
-count. `Ctrl+K` focuses the prompt, `Ctrl+L` clears the screen, `Ctrl+C` exits.
-
-## 🔌 Universal gateway connectivity
-
-A data-driven catalog of **26 gateways** — hosted providers, aggregators,
-enterprise gateways, and local runtimes — plus unlimited custom profiles.
-When a gateway exposes `GET /models`, `/refresh` discovers its live model
-list instead of trusting a hard-coded one.
-
-| | |
-|---|---|
-| **Hosted** | OpenAI · OpenRouter · Groq · Together · Fireworks · DeepInfra · Hyperbolic · NVIDIA · Cerebras · SambaNova · DeepSeek · Mistral · xAI · Cohere · Perplexity · Hugging Face · Cloudflare |
-| **Aggregators** | LiteLLM · Portkey |
-| **Local** | Ollama · LM Studio · vLLM · llama.cpp · SGLang · LocalAI |
-| **Governed** | `helios` — the default; traces, policy, routing, evaluation preserved |
-
-Custom gateways store **only the environment-variable name** of a credential —
-`gateway-add` rejects anything that looks like a raw secret:
-
-```bash
-PYTHONPATH=src python -m helios.cli gateway-add my-gateway \
-  --base-url https://gateway.example.com/v1 \
-  --api-key-env MY_GATEWAY_API_KEY --model my-model
-
-PYTHONPATH=src python -m helios.cli gateway-list
-PYTHONPATH=src python -m helios.tui --gateway my-gateway
-```
-
-Free-tier providers for real completions: [Groq](https://console.groq.com/keys)
-(`HELIOS_GROQ_API_KEY`), [OpenRouter](https://openrouter.ai/keys)
-(`HELIOS_OPENROUTER_API_KEY`), [Gemini](https://aistudio.google.com/apikey)
-(`HELIOS_GEMINI_API_KEY`) — free tiers are metered at $0.00. The `mock`
-provider needs nothing at all.
-
-## 🌐 Governed web access
-
-> **Core rule: web content is data, never authority.** A page, transcript,
-> post, tool description, or MCP response must never change Helios policy,
-> credentials, or tool permissions.
-
-Every web operation flows through the **Web Access Broker**:
-policy preflight → adapter fallback chain → sanitization → normalized
-documents with provenance → tenant-scoped `WebAccessJob` audit records.
-
-```bash
-curl -s -X POST http://localhost:8000/v1/web/search \
-  -H "X-Helios-API-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"query": "complaints about product X"}'
-```
-
-| Control | Enforcement (all tested) |
-|---|---|
-| Trust labeling | Every document is forced to `untrusted_external_content` — adapters cannot upgrade trust |
-| Injection quarantine | Sentinel patterns scan pages/transcripts/posts/MCP results; poisoned content is withheld |
-| Secret scrubbing | API keys, bearer tokens, cookies, JWTs are redacted before return or persistence |
-| Read/write separation | Write ops (post/send/delete/like/follow/purchase) are refused without approval |
-| Domain policy | Reads restricted to an allowlist; unknown domains blocked with an explicit reason |
-| Failure honesty | Rate-limited sources reported as such; fallbacks visible; retrieval never fabricated |
-| Optional connectors | Agent-Reach (MCP) & SocialCrawl report `unconfigured` honestly; MCP tools allowlisted |
-
-Adapters: public HTTP/RSS reader · GitHub (typed API ops, no shell) · Reddit ·
-YouTube transcripts (public captions, no `yt-dlp` shell) · Agent-Reach ·
-SocialCrawl. Full design: [docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md).
-
-### MCP governance (Phase W2)
-
-Arbitrary MCP servers never run inside the API process. Registered servers
-start **untrusted** and are unusable until a human approves them; every call
-is tool-filtered, argument-validated, budgeted (calls/bytes/timeout), and
-sanitized. The version pinned at registration is checked at health time —
-drift marks the server degraded instead of silently changing tool behavior.
-
-```text
-POST /v1/mcp/servers            register (starts untrusted)
-POST /v1/mcp/servers/{id}/trust approve | revoke
-GET  /v1/mcp/servers/{id}/health  reachability + version drift
-POST /v1/mcp/call               governed tool call → sanitized document
-```
-
-### Browser sessions (Phase W3, read-only)
-
-Cookies live **only** in an encrypted session vault (`HELIOS_SESSION_VAULT_KEY`,
-fail-closed — no key, no sessions). The worker decrypts them per request,
-attaches them to the outbound call, and they never appear in responses,
-events, traces, or prompts. Fresh context is the default; authenticated reads
-additionally require an approval bound to the exact `(url, session)` payload.
-Every navigation emits `navigate` / `read` / `blocked` audit events.
-
-## ✅ Agent actions, approvals, and idempotency
-
-Phase W4 makes writing to the outside world a **typed, human-gated, exactly-once**
-operation:
-
-```text
-propose  →  POST /v1/actions/propose     typed action + args → approval request
-approve  →  POST /v1/approvals/{id}/decide   human decision, recorded
-execute  →  POST /v1/actions/execute     approval-bound + idempotency key
-```
-
-- **Typed registry** — only registered actions (`github_open_issue`,
-  `webhook_notify`, `browser_read_authenticated`) can ever execute; a
-  model-generated arbitrary payload cannot become an action.
-- **Payload binding** — approvals bind to `sha256(action + args)`; approving
-  one payload does not authorize a different one (changing even one argument
-  re-requires approval).
-- **Effect journal** — every execution writes an `ActionEffect` keyed by
-  idempotency key. A retry **replays** the recorded effect; it never
-  re-executes. No duplicate tickets, commits, posts, or messages.
-- **Scheduled research** — recurring watches (`/v1/schedules`) search through
-  the governed broker, diff content hashes against the previous run, and
-  report `change_detected` — they observe and report, never write. The worker
-  runs due schedules automatically.
-
-## 🧬 Self-evolving agents
-
-Helios agents improve themselves from production evidence — but only through
-a governed gate. **Proposals never self-approve.**
-
-```mermaid
-flowchart LR
-    T[(DecisionTraces)] --> M[1 · Mine<br/>failures, blocks,<br/>low scores, 👎]
-    M --> C[2 · Cluster<br/>failure signatures]
-    C --> P[3 · Propose<br/>typed changes + evidence]
-    P --> H{4 · Human gate}
-    H -- approve --> A[5 · Apply<br/>versioned]
-    H -- reject --> X[rejected]
-    A --> S[Live evolution state<br/>consumed by router/policy/evals]
-    A -. rollback .-> S
-```
-
-The engine classifies recent traces into failure signatures — provider
-errors, refusals, empty outputs, latency breaches, hallucination risk,
-policy blocks, negative feedback — and emits **typed proposals** with the
-evidence attached (occurrence counts, trace IDs, share of recent traffic):
-
-| Signature | Proposal kind | Example |
-|---|---|---|
-| `provider_error:groq` | `routing_fallback` | *Demote provider 'groq' after 7 failures* |
-| `refusal` | `evaluator_pattern` | *Generate refusal patterns from observed outputs* |
-| `hallucination_risk` | `policy_rule` | *Require KB grounding for answer-style tasks* |
-| `latency_breach` | `routing_fallback` | *Prefer lower-latency route after SLA breaches* |
-| `negative_feedback` | `prompt_hint` | *Prefer cited, source-grounded answers* |
-
-Applying is versioned with the previous state captured — one call rolls it
-back. Re-analysis dedupes against open proposals, so the loop converges
-instead of spamming. Drive it from the TUI (`/evolve`, `/evolve apply <id>`)
-or the API (`/v1/evolution/*`).
-
-## 📚 Knowledge & evaluation loop
-
-**Tenant-isolated RAG** on pgvector: ingestion chunks, embeds, and stores in
-one ACID transaction (no ghost vectors); isolation is a database-level
-`WHERE tenant_id = …` applied *before* the distance calculation. Retrieved
-chunks are injected as numbered context with `citations` returned; poisoned
-chunks are dropped before prompt assembly. SQLite tests use a transparent
-Python cosine fallback.
-
-**Hot path / cold path**: the gateway persists the trace, enqueues an
-`EvaluationJob`, and returns (~2 ms overhead). Workers claim jobs with
-`FOR UPDATE SKIP LOCKED` — a concurrent, at-least-once queue on the database
-you already run (`docker compose up --scale worker=3`). Failed evaluators and
-high hallucination risk auto-escalate to the human review queue; thumbs-down
-feedback escalates in the same request; blocked/failed traces mine into
-versioned datasets (`failure-cases:v1 → v2`) and replay through the simulator
-for canary / do-not-deploy verdicts.
-
-## 🛡️ Security model
-
-| Layer | Control |
-|---|---|
-| Identity | Hashed API keys, tenant/application scoping on every query |
-| Input | PII detection; high-risk PII blocked (403 + persisted `status=blocked` trace); redaction before external providers |
-| Retrieval | Tenant isolation at the SQL layer; injection-poisoned documents dropped |
-| Web | Trust labeling, injection quarantine, secret scrubbing, domain allowlists, volume caps |
-| MCP | Trust lifecycle, tool allowlists, argument validation, budgets, version pinning |
-| Browser | Encrypted cookie vault (fail-closed), per-session domain allowlists, cookie non-exposure, event audit |
-| Actions | Typed registry, payload-hash-bound approvals, idempotent effect journal |
-| Output | Leak scanning; citations required for high-risk answers |
-| Evolution | Human-only apply gate, versioned state, one-call rollback |
-| Workflows | Same Sentinel/policy/trace path as the gateway; workspace-scoped retrieval; deterministic facts; risk-gated approvals; explicit insufficient-evidence state |
-| Credentials | Environment-variable references everywhere; raw secrets rejected at every input path |
-
-## 📊 Measured results
-
-Every number observed on this codebase — test suite or live end-to-end runs.
-No projections.
-
-| Metric | Measured |
-|---|---|
-| Test suite | **106/106 passing in ~4s**, zero external services (SQLite + mock providers) |
-| Gateway hot-path overhead | **~2 ms** (49–52 ms end-to-end incl. the mock's simulated 50 ms inference; spec target: <100 ms p50) |
-| Groundedness (spec §24 refund query) | **0.857** (6/7 claims supported), hallucination risk **0.143**, 1 citation |
-| Retrieval ranking | relevant doc **0.344** vs **0.000** irrelevant (cosine, top-k=3) |
-| Cross-tenant isolation | **0 leaks** — blocked at the query layer, dedicated test |
-| Policy enforcement | high-risk PII → **403** with persisted blocked trace; low-risk → flagged + redacted |
-| Web access controls | trust forcing, injection quarantine, secret scrubbing, write refusal, domain blocks, rate-limit honesty — each with a dedicated test |
-| MCP governance | untrusted-server refusal, tool allowlist, budget exhaustion, version drift — all tested |
-| Cookie isolation | cookie reaches the outbound request in-worker, **never** the document/events/response (tested + live) |
-| Idempotency | same key → `replayed: true`, zero re-execution; changed args → re-approval required (tested) |
-| Self-evolution | 3 provider failures → mined proposal → TUI apply → live routing override → rollback (tested + live) |
-| Simulator | replayed traffic vs candidate; `canary_1_percent` / `do_not_deploy` verdicts |
-| Workflow determinism | Run 104→105: `max_temp +27.18%`, `cooling_flow −37.32%`, 3 threshold violations — computed, not model-claimed (tested + live) |
-| Cross-domain governance | same engine ran engineering/software/finance demos end-to-end: high risk → approval → payload-bound idempotent action (tested + live) |
-| Insufficient evidence | empty tenant → `insufficient_evidence`, confidence 0.0, zero AI calls, nothing fabricated (tested) |
-| Footprint | **~10.6k LOC** src + **~2.4k LOC** tests, **56 API endpoints**, 22 models, 2 processes (api + worker) + TUI, 1 database |
-
-## 🗂️ Project structure
-
-```
-src/helios/
-  main.py             FastAPI app + startup          gateways.py   26-gateway catalog + custom profiles
-  config.py           HELIOS_* settings              evolution.py  self-evolution engine
-  models.py           22 SQLAlchemy models           worker.py     eval worker + scheduled research
-  security.py         API-key auth                   cli.py        create-api-key, gateway-add/list
-  sentinel.py         PII + injection detection      policy.py     policy-as-code gates
-  registry.py         model registry + router        retrieval.py  tenant-isolated vector search
-  tui/                terminal agent (GOVERNED/DIRECT, /workspace, /workflow, /web, /evolve)
-  web/                broker, policy, sanitizer, vault, browser worker, MCP broker, actions
-    adapters/         http/rss, github, reddit, youtube, agent-reach, socialcrawl
-  workflows/          engine, deterministic analysis, evidence, briefs, seeding
-    packs/            engineering, software, finance (config-driven, synthetic data)
-  routes/             completions, traces, knowledge, review, datasets, simulations,
-                      web, mcp, browser, actions, evolution, workflows, health
-  providers/          mock, openai_compatible, gemini, anthropic + router
-  evaluators/         empty-output, latency-SLA, refusal, groundedness pipeline
-  embeddings/         mock (hashed BoW), gemini, openai
-tests/                83 tests, fully offline
-docs/                 architecture docs + technical roadmap
-```
-
-## ⚖️ Intentional tradeoffs
-
-Honest engineering notes, not fine print:
-
-- **Postgres over Kafka/ClickHouse** — `FOR UPDATE SKIP LOCKED` is the queue
-  until throughput demands more; the worker boundary makes migration a swap,
-  not a rewrite.
-- **`create_all` over Alembic** — move to migrations before any production
-  schema change.
-- **Heuristic evaluators/extractors** — deterministic regex/overlap scoring
-  today; LLM-as-judge slots in behind the same `BaseEvaluator` interface.
-- **Inert action executors** — the OSS MVP prepares actions (typed, approved,
-  idempotent, audited); real side-effect connectors (GitHub App, webhooks)
-  are the enterprise track behind the same registry.
-- **In-process browser/MCP workers** — the isolation *contract* (vault,
-  allowlists, events, budgets) is real and tested; container/microVM
-  isolation is deployment work, not redesign.
-- **MVP vault crypto** — HMAC-derived keystream + integrity tag, keyed from
-  env; swaps for KMS envelope encryption behind the same two functions.
-
-## 📖 Documentation
-
-| Document | Contents |
-|---|---|
-| [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | The workflow layer: workspace/workflow/source/evidence models, risk & approval model, reference workspaces, how to add a domain, demo, limitations |
-| [docs/WEB_ACCESS_ARCHITECTURE.md](docs/WEB_ACCESS_ARCHITECTURE.md) | The full web-access design: planes, adapters, worker isolation, secrets, phased rollout (W1–W4) |
-| [docs/helios-web-access.mmd](docs/helios-web-access.mmd) | Editable Mermaid source for the web-access system diagram |
-| [docs/YC27_TECHNICAL_CHECKLIST.md](docs/YC27_TECHNICAL_CHECKLIST.md) | The complete technical roadmap: P0–P2 priorities, acceptance tests, build order, the minimum competitive 15 |
+Architecture map and V1 plan: [docs/V1_PLAN.md](docs/V1_PLAN.md).
 
 ---
 
 <div align="center">
 
-<img src="assets/helios-logo.svg" alt="Helios" width="96">
+*An AI agent wants to do something dangerous. HELIOS understands what it wants
+to do, who is doing it, decides whether it is allowed, asks a human when
+necessary, executes safely — and leaves an exact audit trail.*
 
-**Helios** — every action traced · every risk gated · every failure learned from
+**That is HELIOS.**
 
 </div>
