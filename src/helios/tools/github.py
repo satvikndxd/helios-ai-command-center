@@ -171,7 +171,9 @@ def install(registry) -> None:
             **_REPO, "title": {"type": "string"}, "head": {"type": "string"},
             "base": {"type": "string"}, "body": {"type": "string"}},
             "required": ["repo", "title", "head", "base"]},
-        resource_fields={"repo": "github.repo", "base": "github.base"},
+        # Note: opening a PR *against* main does not modify main — only the
+        # merge tool maps its base branch into the protected-branch signal.
+        resource_fields={"repo": "github.repo"},
         network=["api.github.com"], args_editable=True,
     ), _create_pr)
 

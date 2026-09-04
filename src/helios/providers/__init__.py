@@ -11,6 +11,10 @@ def get_provider(provider_name: str, settings: Settings) -> BaseProvider:
     name = provider_name.lower()
     if name == "mock":
         return MockProvider()
+    if name == "scripted":
+        from helios.providers.scripted import ScriptedProvider
+
+        return ScriptedProvider()
     if name == "groq":
         return OpenAICompatibleProvider(
             base_url=settings.groq_base_url,
