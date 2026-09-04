@@ -98,12 +98,13 @@ PIDFILE_WORKER="\$HELIOS_HOME/worker.pid"
 
 usage() {
   cat <<'EOF'
-helios — Governed AI Command Center
+helios — The control plane for AI agents
 
-  helios demo            Seed the 3 synthetic workspaces + print an API key
+  helios                 Start the control plane and open the governed agent
+  helios tui             Open the terminal agent (GOVERNED by default)
   helios up              Start the API (:8000) and eval worker in the background
   helios down            Stop background API + worker
-  helios tui             Open the terminal agent (GOVERNED by default)
+  helios demo            Seed the demo workspaces + print an API key
   helios api             Run the API in the foreground
   helios worker          Run the evaluation worker in the foreground
   helios test            Run the full offline test suite
@@ -111,15 +112,42 @@ helios — Governed AI Command Center
   helios <cli args>      Anything else forwards to the Helios CLI
                          (create-api-key, gateway-add, gateway-list, …)
 
-Typical first run:
-  helios demo && helios up
-  export HELIOS_API_KEY=<key printed by demo>
-  helios tui
+Environment:
+  HELIOS_GITHUB_REPO     Repository the agent may touch (e.g. you/yourrepo)
+  HELIOS_GITHUB_TOKEN    GitHub token used by the github.* tools
+  HELIOS_AGENT_ENV       dev | staging | production   (default: dev)
+  HELIOS_AGENT_PROVIDER  Model provider for agent sessions (e.g. scripted,
+                         groq, openai, anthropic; default: server default)
 EOF
 }
 
-case "\${1:-help}" in
-  tui)     shift; exec "\$PYBIN" -m helios.tui "\$@" ;;
+ensure_up() {
+  if ! { [ -f "\$PIDFILE_API" ] && kill -0 "\$(cat "\$PIDFILE_API")" 2>/dev/null; }; then
+    nohup "\$PYBIN" -m uvicorn helios.main:app --port "\$PORT" \
+      > "\$HELIOS_HOME/api.log" 2>&1 & echo \$! > "\$PIDFILE_API"
+    printf 'Started HELIOS API on http://localhost:%s (log: %s/api.log)\n' "\$PORT" "\$HELIOS_HOME"
+    i=0
+    until curl -sf "http://localhost:\$PORT/health" >/dev/null 2>&1; do
+      i=\$((i+1)); [ "\$i" -gt 40 ] && break; sleep 0.25
+    done
+  fi
+}
+
+ensure_key() {
+  if [ -z "\${HELIOS_API_KEY:-}" ]; then
+    if [ ! -s "\$HELIOS_HOME/api_key" ]; then
+      "\$PYBIN" -m helios.cli create-api-key --tenant local --app tui --quiet \
+        > "\$HELIOS_HOME/api_key"
+      chmod 600 "\$HELIOS_HOME/api_key"
+    fi
+    HELIOS_API_KEY="\$(cat "\$HELIOS_HOME/api_key")"
+    export HELIOS_API_KEY
+  fi
+}
+
+case "\${1:-agent}" in
+  agent)   ensure_up; ensure_key; exec "\$PYBIN" -m helios.tui ;;
+  tui)     shift; ensure_up; ensure_key; exec "\$PYBIN" -m helios.tui "\$@" ;;
   api)     shift; exec "\$PYBIN" -m uvicorn helios.main:app --port "\$PORT" "\$@" ;;
   worker)  shift; exec "\$PYBIN" -m helios.worker ;;
   demo)    shift; exec "\$PYBIN" -m helios.cli demo ;;
@@ -193,6 +221,6 @@ fi
 
 printf '\n'
 say "Done. Next:"
-printf '%s\n' "  ${BOLD}helios up${RESET}      ${DIM}# start API + worker in the background${RESET}"
-printf '%s\n' "  ${BOLD}export HELIOS_API_KEY=<key printed above>${RESET}"
-printf '%s\n' "  ${BOLD}helios tui${RESET}     ${DIM}# then: /workspace use engineering${RESET}"
+printf '%s\n' "  ${BOLD}helios${RESET}         ${DIM}# starts the control plane and opens the governed agent${RESET}"
+printf '%s\n' "  ${DIM}optional: export HELIOS_GITHUB_REPO=you/yourrepo HELIOS_GITHUB_TOKEN=…${RESET}"
+printf '%s\n' "  ${DIM}optional: export HELIOS_GROQ_API_KEY=… (or any provider key) for a live model${RESET}"

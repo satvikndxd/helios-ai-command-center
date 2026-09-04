@@ -42,7 +42,9 @@ def get_or_create_application(db, tenant: Tenant, name: str) -> Application:
     return application
 
 
-def create_api_key(tenant_name: str, application_name: str) -> None:
+def create_api_key(
+    tenant_name: str, application_name: str, quiet: bool = False
+) -> None:
     init_db()
 
     db = SessionLocal()
@@ -63,6 +65,10 @@ def create_api_key(tenant_name: str, application_name: str) -> None:
 
         db.add(api_key)
         db.commit()
+
+        if quiet:  # machine-readable: the launcher captures just the key
+            print(raw_key)
+            return
 
         print("Created API key:")
         print(raw_key)
@@ -192,6 +198,10 @@ def main() -> None:
     )
     create_key_parser.add_argument("--tenant", required=True)
     create_key_parser.add_argument("--app", required=True)
+    create_key_parser.add_argument(
+        "--quiet", action="store_true",
+        help="Print only the raw key (for scripts/launchers)",
+    )
 
     gateway_add_parser = subparsers.add_parser(
         "gateway-add",
@@ -227,7 +237,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "create-api-key":
-        create_api_key(args.tenant, args.app)
+        create_api_key(args.tenant, args.app, quiet=getattr(args, "quiet", False))
     elif args.command == "gateway-add":
         gateway_add(args)
     elif args.command == "gateway-list":
