@@ -74,6 +74,22 @@ class Settings(BaseSettings):
     # Generation defaults
     default_max_tokens: int = 1024
 
+    # --- Agent runtime + Tool Broker (V1 core) -------------------------------
+    # Root directory tools may touch. Filesystem/shell/git tools are jailed
+    # under this path; anything outside is denied by the permission layer.
+    workspace_root: str = "./workspace"
+    # Subprocess hard timeout for shell/git tools (seconds).
+    shell_timeout_s: float = 30.0
+    # Max bytes of tool output kept (rest truncated, noted in the trace).
+    tool_output_max_bytes: int = 65536
+    # Branches treated as production-protected for risk scoring.
+    protected_branches: str = "main,master,production,release"
+    # GitHub token used by the GitHub tool executors (never logged).
+    github_token: str | None = None
+    github_api_base: str = "https://api.github.com"
+    # Max agent loop steps per run (runaway guard).
+    agent_max_steps: int = 24
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_prefix="HELIOS_",
