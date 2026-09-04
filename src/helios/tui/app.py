@@ -34,6 +34,7 @@ from helios.tui import (
     request_headers,
 )
 from helios.tui import ui
+from helios.tui.agent import AgentPane
 from helios.tui.ui import Spinner, badge, bullet, c, error, kv, panel, risk_badge, success, table
 
 try:  # pragma: no cover - readline is absent on some platforms
@@ -42,6 +43,15 @@ except ImportError:  # pragma: no cover
     pass
 
 HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Agent (governed — just type to talk)", [
+        ("<message>", "Send to the agent; tools flow through the broker"),
+        ("/sessions · /session <id>", "List / resume persistent sessions"),
+        ("/tools", "Tool manifests: capability, base risk, scopes"),
+        ("/trace [run-id]", "Hierarchical decision trace of a run"),
+        ("/replay [run-id] [policy]", "Re-evaluate a run against a policy"),
+        ("/resume [run-id] · /cancel [run-id]", "Continue / cancel a run"),
+        ("/ask <prompt>", "One-shot governed completion (no tools)"),
+    ]),
     ("Session", [
         ("/help", "Show this help"),
         ("/status", "Gateway, mode, model, endpoint"),
@@ -84,6 +94,7 @@ class HeliosTUI:
         self.history: list[dict[str, str]] = []
         self.models: list[str] = []
         self.workspace: str | None = None  # active domain workspace
+        self.agent = AgentPane(self._web_call)
 
     # -- presentation -----------------------------------------------------
 
@@ -173,6 +184,28 @@ class HeliosTUI:
         elif command == "/clear":
             self.history = []
             print(success("Conversation cleared."))
+        elif command == "/sessions":
+            self.agent.list_sessions()
+        elif command == "/session":
+            if args:
+                self.agent.use_session(args[0])
+            else:
+                self.agent.ensure_session()
+        elif command == "/tools":
+            self.agent.list_tools()
+        elif command == "/trace":
+            self.agent.show_trace(args[0] if args else None)
+        elif command == "/replay":
+            self.agent.replay(args)
+        elif command == "/resume":
+            self.agent.resume(args[0] if args else None)
+        elif command == "/cancel":
+            self.agent.cancel(args[0] if args else None)
+        elif command == "/ask":
+            if not args:
+                print(error("Usage: /ask <prompt>"))
+            else:
+                self.send(" ".join(args))
         elif command == "/web":
             self.handle_web(args)
         elif command == "/approvals":
@@ -192,12 +225,25 @@ class HeliosTUI:
                 print(error(f"Usage: {command} <approval-id>"))
             else:
                 decision = "approved" if command == "/approve" else "denied"
+                approval_id = args[0]
+                if len(approval_id) < 36:  # resolve a short-id prefix
+                    pending = self._web_call("GET", "/v1/approvals?status=pending")
+                    matches = [a["id"] for a in (pending or {}).get("approvals", [])
+                               if a["id"].startswith(approval_id)]
+                    if len(matches) == 1:
+                        approval_id = matches[0]
+                    else:
+                        print(error(f"{len(matches)} pending approvals match "
+                                    f"'{args[0]}' — use the full id"))
+                        return True
                 data = self._web_call(
-                    "POST", f"/v1/approvals/{args[0]}/decide",
+                    "POST", f"/v1/agent/approvals/{approval_id}/decide",
                     {"decision": decision, "decided_by": os.environ.get("USER", "tui")},
                 )
                 if data:
                     print(success(f"{data['id'][:8]} → {data['status']}"))
+                    if data.get("run_id"):
+                        self.agent.resume(data["run_id"])
         elif command == "/evolve":
             self.handle_evolve(args)
         elif command == "/workspace":
@@ -594,7 +640,12 @@ class HeliosTUI:
                 if not self.handle_command(line):
                     return
                 continue
-            self.send(line)
+            if self.governed:
+                # Plain input drives the AGENT: persistent session, tool
+                # proposals through the broker, explicit run states.
+                self.agent.chat(line)
+            else:
+                self.send(line)
 
 
 def main(argv: list[str] | None = None) -> None:

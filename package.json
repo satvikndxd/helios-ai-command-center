@@ -1,7 +1,7 @@
 {
   "name": "helios-command-center",
   "version": "1.0.0",
-  "description": "Helios — Governed AI Command Center. One governed AI runtime, multiple enterprise workflows. npx wrapper around the native installer.",
+  "description": "HELIOS — the control plane for AI agents: permissions, contextual risk, policy, human approvals, and audit for every agent action",
   "bin": {
     "helios": "bin/helios.js"
   },
