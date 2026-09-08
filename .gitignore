@@ -1,10 +1,1 @@
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.env
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-*.sqlite3
-.DS_Store
+Nothing needs to be added to the .gitignore file since only a README.md file was modified and no build artifacts, dependencies, or temporary files were detected in the changes.
