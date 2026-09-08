@@ -93,7 +93,16 @@ def assess_risk(
         reasons.append("touches sensitive path or secret material")
 
     # --- actor context ----------------------------------------------------
-    if context.autonomy == "autonomous" and cap in ("write", "execute", "destructive"):
+    # An autonomous agent raises risk on actions that reach OUTSIDE the
+    # sandbox (network side effects, destructive ops) or run in production —
+    # not on plain local workspace edits, which are already reversible and
+    # contained. Autonomy is further governed by explicit policy rules.
+    autonomous = context.autonomy == "autonomous" or context.autonomy_level >= 4
+    if autonomous and (
+        cap == "destructive"
+        or (cap in ("write", "execute", "network")
+            and context.environment == "production")
+    ):
         score += 0.15
         reasons.append("autonomous agent (no human in the loop)")
     if context.data_classes and cap in ("write", "network"):

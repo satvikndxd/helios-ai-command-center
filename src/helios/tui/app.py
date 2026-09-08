@@ -35,6 +35,7 @@ from helios.tui import (
 )
 from helios.tui import ui
 from helios.tui.agent import AgentPane
+from helios.tui.governance import GovernancePane
 from helios.tui.ui import Spinner, badge, bullet, c, error, kv, panel, risk_badge, success, table
 
 try:  # pragma: no cover - readline is absent on some platforms
@@ -43,6 +44,15 @@ except ImportError:  # pragma: no cover
     pass
 
 HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Governance control center", [
+        ("/systems · /system <id>", "AI system registry / dashboard"),
+        ("/models", "Model registry (approval, data/env clearances)"),
+        ("/governance [id]", "Governance score with per-check explanations"),
+        ("/decisions [id] · /why <id>", "Decision records + WHY explanation"),
+        ("/changes [id]", "AI change records"),
+        ("/drift [id] · /baseline [id]", "Governance drift vs baseline"),
+        ("/audit [id]", "Governance audit record"),
+    ]),
     ("Agent (governed — just type to talk)", [
         ("<message>", "Send to the agent; tools flow through the broker"),
         ("/sessions · /session <id>", "List / resume persistent sessions"),
@@ -62,7 +72,7 @@ HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
         ("/gateway [name]", "Show or switch the active gateway"),
         ("/connect <name>", "Alias for /gateway <name>"),
         ("/model [name]", "Show or set the model"),
-        ("/models", "List models cached from the last /refresh"),
+        ("/gwmodels", "Gateway models cached from the last /refresh"),
         ("/refresh", "Discover models via GET /models"),
     ]),
     ("Workspaces & workflows (governed)", [
@@ -95,6 +105,7 @@ class HeliosTUI:
         self.models: list[str] = []
         self.workspace: str | None = None  # active domain workspace
         self.agent = AgentPane(self._web_call)
+        self.gov = GovernancePane(self._web_call)
 
     # -- presentation -----------------------------------------------------
 
@@ -166,7 +177,7 @@ class HeliosTUI:
                 print(success(f"Model set to {c(self.model, 'fg', bold=True)}"))
             else:
                 print(kv("model", self.model or "auto (router decides)"))
-        elif command == "/models":
+        elif command == "/gwmodels":
             if not self.models:
                 print(c("  No cached models — run /refresh first.", "dim"))
             for model_id in self.models:
@@ -184,6 +195,31 @@ class HeliosTUI:
         elif command == "/clear":
             self.history = []
             print(success("Conversation cleared."))
+        elif command == "/systems":
+            self.gov.list_systems()
+        elif command == "/system":
+            if args and args[0] not in ("show",):
+                self.gov.use_system(args[0])
+            self.gov.show_system()
+        elif command == "/models":
+            self.gov.list_models()
+        elif command == "/governance":
+            self.gov.show_governance(args[0] if args else None)
+        elif command == "/decisions":
+            self.gov.list_decisions(args[0] if args else None)
+        elif command == "/why":
+            if not args:
+                print(error("Usage: /why <decision-id>"))
+            else:
+                self.gov.why(args[0])
+        elif command == "/changes":
+            self.gov.list_changes(args[0] if args else None)
+        elif command == "/drift":
+            self.gov.show_drift(args[0] if args else None)
+        elif command == "/baseline":
+            self.gov.baseline(args[0] if args else None)
+        elif command == "/audit":
+            self.gov.show_audit(args[0] if args else None)
         elif command == "/sessions":
             self.agent.list_sessions()
         elif command == "/session":
@@ -623,8 +659,9 @@ class HeliosTUI:
     def run(self) -> None:
         mode = "GOVERNED" if self.governed else "DIRECT"
         print(ui.banner(
-            "Governed AI Command Center",
-            f"gateway {self.profile.name} · {mode} · /help for commands · {KEYS_HINT}",
+            "AI Governance Control Plane",
+            f"gateway {self.profile.name} · {mode} · /systems /governance /audit · "
+            f"/help · {KEYS_HINT}",
         ))
 
         while True:
