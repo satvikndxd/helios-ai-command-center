@@ -234,6 +234,13 @@ def main() -> None:
         help="Initialize the synthetic multi-workspace demo environment",
     )
 
+    gov_demo = subparsers.add_parser(
+        "demo-governance",
+        help="Register a governed release-agent AI system + approved model",
+    )
+    gov_demo.add_argument("--tenant", default="local")
+    gov_demo.add_argument("--app", default="tui")
+
     args = parser.parse_args()
 
     if args.command == "create-api-key":
@@ -244,6 +251,30 @@ def main() -> None:
         gateway_list()
     elif args.command == "demo":
         demo()
+    elif args.command == "demo-governance":
+        _demo_governance(args.tenant, args.app)
+
+
+def _demo_governance(tenant_name: str, app_name: str) -> None:
+    from helios.db import SessionLocal
+    from helios.governance.seed import seed_governance_demo
+
+    init_db()
+    db = SessionLocal()
+    try:
+        tenant = get_or_create_tenant(db, tenant_name)
+        get_or_create_application(db, tenant, app_name)
+        tenant_id = tenant.id
+    finally:
+        db.close()
+    result = seed_governance_demo(tenant_id)
+    print("Registered governed AI system for tenant "
+          f"'{tenant_name}':")
+    print(f"  system: {result['system']}  (L3 · staging · GitHub-bound)")
+    print(f"  model:  {result['model']}  (approved)")
+    print("\nExplore it in the TUI:")
+    print("  helios            # then: /systems · /system release-agent")
+    print("                    #       /governance · /decisions · /audit")
 
 
 if __name__ == "__main__":
