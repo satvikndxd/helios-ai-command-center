@@ -1,13 +1,14 @@
 """
-TUI agent pane — the daily-driver chat loop on top of /v1/agent.
+TUI agent pane — the governed HELIOS shell on top of /v1/agent.
 
-Design rules:
+Design rules (unchanged from V1, restyled for the equipment console):
 * The agent's state is ALWAYS explicit. `awaiting_approval` and `blocked`
-  are first-class, loudly-rendered states — never a generic spinner.
-* An approval prompt shows everything a human needs to decide: agent, tool,
-  arguments, target resource, environment, risk (with reasons), the policy
-  rule that fired, and the trace id — then binds the decision to the exact
-  payload hash.
+  are first-class, loudly-rendered states — never a generic spinner. The
+  run state machine is drawn as an instrument column.
+* An approval prompt is a SECURITY AUTHORIZATION CONSOLE: action, system,
+  risk with reasons, target resource, the policy + governance rules that
+  fired, data classification, and the sha256 payload binding rendered in
+  full — because mutation invalidates the approval.
 """
 
 from __future__ import annotations
@@ -15,25 +16,26 @@ from __future__ import annotations
 import json
 import os
 
-from helios.tui import ui
-from helios.tui.ui import badge, bullet, c, error, kv, panel, risk_badge, success
+from helios.tui import screens
+from helios.tui import theme as t
 
-STATE_BADGES = {
+STATE_WORDS = {
     "thinking": ("THINKING", "sea"),
     "planning": ("PLANNING", "sea"),
     "tool_pending": ("TOOL PENDING", "sea"),
-    "running": ("RUNNING", "green"),
-    "awaiting_approval": ("AWAITING APPROVAL", "yellow"),
-    "blocked": ("BLOCKED", "red"),
-    "completed": ("COMPLETED", "green"),
-    "failed": ("FAILED", "red"),
-    "cancelled": ("CANCELLED", "yellow"),
+    "running": ("RUNNING", "accent"),
+    "awaiting_approval": ("AWAITING APPROVAL", "warn"),
+    "blocked": ("BLOCKED", "crit"),
+    "completed": ("COMPLETED", "accent"),
+    "failed": ("FAILED", "crit"),
+    "cancelled": ("CANCELLED", "warn"),
 }
 
 
 def state_badge(state: str) -> str:
-    label, color = STATE_BADGES.get(state, (state.upper(), "dim"))
-    return badge(label, color)
+    label, color = STATE_WORDS.get(state, (state.upper(), "dim"))
+    glyph = t.glyph_for(state)
+    return t.c(f"{glyph} {label}", color, bold=True)
 
 
 class AgentPane:
@@ -63,32 +65,39 @@ class AgentPane:
         if session:
             self.session = session
             repo = payload["github_repo"] or "none (set HELIOS_GITHUB_REPO)"
-            print(success(
-                f"Agent session {c(session['id'][:8], 'fg', bold=True)} · "
-                f"env {c(session['environment'], 'fg')} · repo {c(repo, 'fg')} · "
-                f"model {c(session['model_provider'], 'fg')}"
-            ))
+            print(t.section("HELIOS SHELL / SESSION"))
+            print(t.kv("session", t.c(session["id"][:8], "text", bold=True)))
+            print(t.kv("environment", session["environment"]))
+            print(t.kv("repository", repo))
+            print(t.kv("model", session["model_provider"]))
+            print(t.kv("governance", t.c("ENFORCED", "accent", bold=True)))
         return self.session
 
     def use_session(self, session_id: str) -> None:
         session = self._call("GET", f"/v1/agent/sessions/{session_id}")
         if session:
             self.session = session
-            print(success(f"Resumed session {session['id'][:8]} "
-                          f"({session['message_count']} messages)"))
+            print(t.c(f"  {t.GL['allow']} resumed session {session['id'][:8]} "
+                      f"({session['message_count']} messages)", "accent"))
 
     def list_sessions(self) -> None:
+        from helios.tui import governance as gov  # noqa: F401  (state colors)
+
         data = self._call("GET", "/v1/agent/sessions")
         if not data:
             return
         rows = []
         for s in data.get("sessions", []):
-            marker = c("●", "green") if self.session and s["id"] == self.session["id"] \
-                else c("·", "dim")
-            rows.append([marker, s["id"][:8], s["name"], s["environment"],
-                         s["model_provider"], str(s["message_count"]),
-                         s["created_at"][:19] if s["created_at"] else ""])
-        print(ui.table(["", "id", "name", "env", "model", "msgs", "created"], rows))
+            marker = t.c(t.GL["dot"], "accent") \
+                if self.session and s["id"] == self.session["id"] \
+                else t.c(t.GL["dot_off"], "faint")
+            rows.append([marker, s["id"][:8], s["name"], s.get("system_id") or "—",
+                         s["environment"], s["model_provider"],
+                         str(s["message_count"]),
+                         (s["created_at"] or "")[:19]])
+        print(t.table(["", "id", "name", "system", "env", "model", "msgs",
+                       "created"], rows,
+                      drop=["created", "msgs", "model"]))
 
     # -- chat --------------------------------------------------------------
 
@@ -105,7 +114,7 @@ class AgentPane:
     def resume(self, run_id: str | None = None) -> None:
         run_id = run_id or self.last_run_id
         if not run_id:
-            print(error("No run to resume."))
+            print(t.c("  × no run to resume", "crit"))
             return
         run = self._call("POST", f"/v1/agent/runs/{run_id}/resume")
         if run:
@@ -114,11 +123,12 @@ class AgentPane:
     def cancel(self, run_id: str | None = None) -> None:
         run_id = run_id or self.last_run_id
         if not run_id:
-            print(error("No run to cancel."))
+            print(t.c("  × no run to cancel", "crit"))
             return
         run = self._call("POST", f"/v1/agent/runs/{run_id}/cancel")
         if run:
-            print(success(f"run {run_id[:8]} → {run['state']}"))
+            print(t.c(f"  {t.GL['gate']} run {run_id[:8]} → {run['state']}",
+                      "warn"))
 
     # -- rendering ---------------------------------------------------------
 
@@ -136,134 +146,66 @@ class AgentPane:
         if state == "completed":
             print()
             print(run.get("output_text") or "")
-            print(c(f"  run={run['id'][:8]} · {run['steps']} steps · "
-                    f"${run['cost_usd']:.4f} · {run['latency_ms']}ms", "dim"))
+            print(t.c(f"  run={run['id'][:8]} · {run['steps']} steps · "
+                      f"${run['cost_usd']:.4f} · {run['latency_ms']}ms", "faint"))
         elif state == "awaiting_approval":
             self._approval_prompt(run)
         elif state == "blocked":
-            print(panel("BLOCKED", [
-                c("The pending action was denied by a human.", "fg"),
-                c("The agent will not execute it. Send a new message to "
-                  "continue, or /retry the run.", "dim"),
-            ], color="red"))
+            print()
+            print(t.diag("HELIOS / GOVERNANCE BLOCK", [
+                ("state", "BLOCKED"),
+                ("meaning", "the pending action was denied by a human"),
+                ("effect", "nothing executed; send a new message or /resume"),
+            ], severity="crit"))
         elif state == "failed":
             reason = (run.get("error") or {}).get("message", "unknown")
-            print(error(f"Run failed: {reason}"))
+            print(t.diag("HELIOS / RUN FAULT", [("run", run["id"][:8]),
+                                                ("reason", reason)],
+                         severity="crit"))
         elif state == "cancelled":
-            print(c("  Run cancelled.", "yellow"))
+            print(t.c(f"  {t.GL['gate']} run cancelled", "warn"))
 
     def _render_event(self, event: dict) -> None:
         etype = event["event_type"]
         payload = event.get("payload") or {}
         if etype == "state_change":
             print(f"  {state_badge(payload.get('to', event['name']))} "
-                  f"{c(payload.get('detail', ''), 'dim')}")
+                  f"{t.c(payload.get('detail', ''), 'dim')}")
         elif etype == "model_call":
-            print(c(f"    model {event['name']} · {event['latency_ms']}ms", "dim"))
+            print(t.c(f"    {t.GL['circle']} model {event['name']} · "
+                      f"{event['latency_ms']}ms", "dim"))
         elif etype == "tool_proposal":
             args = json.dumps(payload.get("args", {}), default=str)
-            if len(args) > 100:
-                args = args[:100] + "…"
-            print(f"    {c('→', 'sea')} {c(event['name'], 'fg', bold=True)} "
-                  f"{c(args, 'dim')}")
+            if len(args) > 90:
+                args = args[:90] + "…"
+            print(f"    {t.c(t.GL['arrow'], 'sea')} "
+                  f"{t.c(event['name'], 'text', bold=True)} "
+                  f"{t.c(args, 'dim')}")
         elif etype == "risk_evaluation":
             reasons = ", ".join(payload.get("reasons", [])[:3])
-            print(f"      risk {risk_badge(payload.get('risk', '?'))} "
-                  f"{c(reasons, 'dim')}")
-        elif etype == "policy_evaluation":
+            print(f"      risk {t.glyphed('deny' if payload.get('risk') in ('high', 'critical') else 'allow', str(payload.get('risk', '?')).upper())} "
+                  f"{t.c(reasons, 'dim')}")
+        elif etype in ("policy_evaluation", "governance_evaluation"):
             decision = payload.get("decision", event["status"])
-            color = {"allow": "green", "deny": "red",
-                     "require_approval": "yellow"}.get(decision, "dim")
-            print(f"      policy {badge(decision.upper(), color)} "
-                  f"{c(payload.get('reason', ''), 'dim')}")
+            print(f"      {t.glyphed(decision)} "
+                  f"{t.c(t.fit(payload.get('reason', ''), 70), 'dim')}")
         elif etype == "approval":
             mode = payload.get("mode", "")
-            print(f"      approval {badge(event['status'].upper(), 'yellow' if event['status'] == 'pending' else 'green')} "
-                  f"{c(mode, 'dim')}")
+            print(f"      {t.glyphed(event['status'])} approval "
+                  f"{t.c(mode, 'dim')} "
+                  f"{t.c((payload.get('approval_id') or '')[:8], 'dim')}")
+        elif etype == "human_review":
+            print(f"      {t.c(t.GL['review'], 'sea')} human review "
+                  f"{t.c(payload.get('decided_by', ''), 'text')} "
+                  f"{t.c(payload.get('decision', ''), 'dim')}")
         elif etype == "tool_execution":
             status = event["status"]
-            color = "green" if status in ("ok", "replayed") else "red"
-            preview = json.dumps(payload.get("result") or payload.get("error") or {},
-                                 default=str)[:100]
-            print(f"      {badge(status.upper(), color)} {c(preview, 'dim')}")
+            preview = json.dumps(payload.get("result") or payload.get("error")
+                                 or {}, default=str)[:90]
+            print(f"      {t.glyphed('allow' if status in ('ok', 'replayed') else 'deny', status.upper())} "
+                  f"{t.c(preview, 'dim')}")
 
-    # -- the approval prompt (flagship UX) ---------------------------------
-
-    def _approval_prompt(self, run: dict) -> None:
-        pending = run.get("pending") or {}
-        approval_id = pending.get("approval_id", "")
-        approval = self._fetch_approval(approval_id)
-        summary = (approval or {}).get("summary", {})
-        risk = pending.get("risk") or summary.get("risk") or {}
-        policy = pending.get("policy") or summary.get("policy") or {}
-
-        lines = [
-            kv("agent", c(summary.get("agent_id") or "helios-agent", "fg")),
-            kv("tool", c(pending.get("tool", "?"), "fg", bold=True)),
-            kv("action", c(summary.get("description", ""), "fg")),
-        ]
-        for key, value in (summary.get("resource") or {}).items():
-            lines.append(kv(key, c(str(value), "fg", bold=True)))
-        args = pending.get("args") or {}
-        for key, value in list(args.items())[:8]:
-            preview = str(value)
-            if len(preview) > 80:
-                preview = preview[:80] + "…"
-            lines.append(kv(f"args.{key}", preview))
-        lines.extend([
-            kv("environment", c(summary.get("environment", "?"), "fg", bold=True)),
-            kv("risk", f"{risk_badge(risk.get('risk', 'high'))} "
-                       + c(f"score {risk.get('score', '?')}", "dim")),
-        ])
-        for reason in risk.get("reasons", []):
-            lines.append(kv("", c(f"– {reason}", "yellow")))
-        lines.extend([
-            kv("policy", c(f"{policy.get('policy_version', '?')} · rule "
-                           f"{policy.get('rule_id', '?')}", "fg")),
-            kv("why", c(policy.get("reason", pending.get("reason", "")), "fg")),
-            kv("approval", c(approval_id, "dim")),
-            kv("trace", c(f"run {run['id']}", "dim")),
-        ])
-        print(panel("APPROVAL REQUIRED", lines, color="yellow"))
-
-        try:
-            import sys
-            if not sys.stdin.isatty():
-                print(c("  Decide with /approve|/deny " + approval_id[:8]
-                        + " then /resume", "dim"))
-                return
-            while True:
-                choice = input(
-                    "  " + c("[a]", "green") + "pprove  "
-                    + c("[d]", "red") + "eny  "
-                    + c("[s]", "sea") + "ession-approve  "
-                    + c("[i]", "dim") + "nspect  "
-                    + c("[l]", "dim") + "ater > "
-                ).strip().lower()
-                if choice in ("a", "d", "s"):
-                    decision = {"a": "approved", "d": "denied",
-                                "s": "approve_session"}[choice]
-                    decided = self._call(
-                        "POST", f"/v1/agent/approvals/{approval_id}/decide",
-                        {"decision": decision,
-                         "decided_by": os.environ.get("USER", "tui")},
-                    )
-                    if decided:
-                        print(success(f"approval {approval_id[:8]} → "
-                                      f"{decided['status']}"))
-                        self.resume(run["id"])
-                    return
-                if choice == "i":
-                    print(c(json.dumps({
-                        "args": args, "risk": risk, "policy": policy,
-                    }, indent=2, default=str), "dim"))
-                    continue
-                print(c(f"  Left pending. Later: /approve {approval_id[:8]}… "
-                        f"then /resume", "dim"))
-                return
-        except (EOFError, KeyboardInterrupt):
-            print("\n" + c(f"  Left pending — /approve {approval_id[:8]}… "
-                           f"then /resume", "dim"))
+    # -- the approval console (flagship UX) ---------------------------------
 
     def _fetch_approval(self, approval_id: str) -> dict | None:
         data = self._call("GET", "/v1/approvals?status=pending")
@@ -272,50 +214,77 @@ class AgentPane:
                 return approval
         return None
 
+    def _approval_prompt(self, run: dict) -> None:
+        pending = run.get("pending") or {}
+        approval_id = pending.get("approval_id", "")
+        approval = self._fetch_approval(approval_id) or {}
+        summary = approval.get("summary") or {}
+        risk = pending.get("risk") or summary.get("risk") or {}
+        policy = pending.get("policy") or summary.get("policy") or {}
+        governance = summary.get("governance") or {}
+        classification = summary.get("data_classification") or {}
+        args_hash = approval.get("args_hash") or pending.get("args_hash") or ""
+
+        print()
+        print(screens.shell_state("awaiting_approval"))
+        print()
+        lines = [
+            t.section(f"OVERSIGHT / APPROVAL / {approval_id[:8].upper()}"),
+            t.kv("action", t.c(str(pending.get("tool", "?")), "text", bold=True)),
+            t.kv("system", str(summary.get("system_id")
+                               or (self.session or {}).get("system_id") or "—")),
+            t.kv("risk", t.glyphed(
+                "deny" if risk.get("risk") in ("high", "critical") else "gate",
+                str(risk.get("risk", "?")).upper())),
+        ]
+        for reason in (risk.get("reasons") or [])[:4]:
+            lines.append(f"      {t.c(t.GL['bullet'], 'faint')} "
+                         f"{t.c(reason, 'dim')}")
+        lines += [
+            t.kv("target", t.fit(str(summary.get("resource") or "—"), 60)),
+            t.kv("data", str(classification.get("effective") or "—")),
+            "",
+            t.section("POLICY"),
+            t.kv("rule", f"{policy.get('policy_version', '?')} / "
+                         f"{policy.get('rule_id', '?')}"),
+            t.kv("reason", t.fit(str(policy.get("reason") or "—"), 60)),
+        ]
+        if governance:
+            lines += [
+                t.section("GOVERNANCE"),
+                t.kv("decision", t.glyphed(governance.get("decision"),
+                                           str(governance.get("decision", "")).upper())),
+            ]
+            for rule in governance.get("matched_rules") or []:
+                lines.append(f"      {t.c(t.GL['bullet'], 'faint')} "
+                             f"{rule.get('set')}@{rule.get('version')}:"
+                             f"{rule.get('rule_id')}")
+        lines += ["", t.section("PAYLOAD BINDING — MUTATION INVALIDATES")]
+        for i in range(0, len(args_hash), 32):
+            lines.append(f"  {t.c('sha256:' if i == 0 else '      ', 'dim')} "
+                         f"{t.c(args_hash[i:i + 32], 'text')}")
+        lines += ["",
+                  t.c("  [A] approve   [D] deny   (or /approve <id> · /deny <id>)",
+                      "accent")]
+        print("\n".join(lines))
+        self._pending_approval = approval_id
+
     # -- inspection --------------------------------------------------------
 
     def show_trace(self, run_id: str | None = None) -> None:
         run_id = run_id or self.last_run_id
         if not run_id:
-            print(error("No run — usage: /trace <run-id>"))
+            print(t.c("  × no run — usage: /trace <run-id>", "crit"))
             return
         data = self._call("GET", f"/v1/agent/runs/{run_id}/events")
         if not data:
             return
-        run, events = data["run"], data["events"]
-        print(panel("DECISION TRACE", [
-            kv("run", run["id"]),
-            kv("state", state_badge(run["state"])),
-            kv("steps", str(run["steps"])),
-            kv("cost", f"${run['cost_usd']:.4f}"),
-            kv("input", (run.get("input_text") or "")[:80]),
-        ]))
-        children: dict[str | None, list[dict]] = {}
-        for event in events:
-            children.setdefault(event.get("parent_id"), []).append(event)
-
-        def render(parent: str | None, depth: int) -> None:
-            for event in children.get(parent, []):
-                indent = "  " + "  " * depth
-                status = event["status"]
-                color = {"ok": "green", "denied": "red", "error": "red",
-                         "pending": "yellow", "blocked": "red",
-                         "approved": "green"}.get(status, "dim")
-                risk = f" {risk_badge(event['risk'])}" if event.get("risk") else ""
-                seq_str = "#{:>2}".format(event["seq"])
-                latency = f"{event['latency_ms']}ms" if event["latency_ms"] else ""
-                print(f"{indent}{c(seq_str, 'dim')} "
-                      f"{c(event['event_type'], 'sea')} "
-                      f"{c(event['name'], 'fg', bold=True)}{risk} "
-                      f"{badge(status, color)} {c(latency, 'dim')}")
-                render(event["id"], depth + 1)
-
-        render(None, 0)
+        print(screens.trace_timeline(data["events"], data["run"]))
 
     def replay(self, args: list[str]) -> None:
         run_id = args[0] if args else self.last_run_id
         if not run_id:
-            print(error("Usage: /replay <run-id> [policy-version]"))
+            print(t.c("  × usage: /replay <run-id> [policy-version]", "crit"))
             return
         payload: dict = {}
         if len(args) > 1:
@@ -323,21 +292,25 @@ class AgentPane:
         data = self._call("POST", f"/v1/agent/runs/{run_id}/replay", payload)
         if not data:
             return
-        print(panel("REPLAY", [
-            kv("run", data["run_id"][:12]),
-            kv("policy", c(data["policy"]["version"], "fg", bold=True)),
-            kv("proposals", str(data["proposals"])),
-            kv("original", c(json.dumps(data["original"]), "fg")),
-            kv("candidate", c(json.dumps(data["candidate"]), "fg")),
-            kv("changes", c(str(len(data["changes"])), "yellow" if data["changes"] else "green")),
-        ]))
-        for change in data["changes"]:
-            print(bullet(
-                f"{c(change['tool'], 'fg', bold=True)} "
-                f"{c(change['original'], 'dim')} → "
-                f"{c(change['candidate'], 'yellow', bold=True)} "
-                f"{c('(' + (change.get('candidate_reason') or '') + ')', 'dim')}"
-            ))
+        width = t.W()
+        lines = [
+            t.section(f"ASSURANCE / REPLAY / RUN {data['run_id'][:8]}"),
+            t.kv("policy", t.c(data["policy"]["version"], "text", bold=True)),
+            t.kv("proposals", str(data["proposals"])),
+            t.kv("original", json.dumps(data["original"])),
+            t.kv("candidate", json.dumps(data["candidate"])),
+            "",
+            t.c(f"  {t.GL['review']} NO ACTIONS EXECUTED — SIMULATION ONLY",
+                "sea"),
+        ]
+        if data["changes"]:
+            lines.append("")
+            lines.extend(t.table(
+                ["action", "original", "candidate", "reason"],
+                [[ch["tool"], ch["original"], ch["candidate"],
+                  t.fit(ch.get("candidate_reason") or "", 34)]
+                 for ch in data["changes"]], drop=["reason"]).split("\n"))
+        print("\n".join(t.fit(line, width) for line in lines))
 
     def list_tools(self) -> None:
         data = self._call("GET", "/v1/tools")
@@ -346,9 +319,10 @@ class AgentPane:
         rows = []
         for tool in data.get("tools", []):
             rows.append([
-                c(tool["name"], "green"), tool["capability"],
-                risk_badge(tool["risk_class"]),
+                tool["name"], tool["capability"],
+                str(tool["risk_class"]).upper(),
                 ",".join(tool.get("scopes", [])),
-                c(tool["description"][:44], "dim"),
+                t.fit(tool["description"], 40),
             ])
-        print(ui.table(["tool", "capability", "base risk", "scopes", ""], rows))
+        print(t.table(["tool", "capability", "base risk", "scopes", ""], rows,
+                      drop=["scopes"]))

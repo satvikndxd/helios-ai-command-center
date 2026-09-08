@@ -1,20 +1,28 @@
 <div align="center">
 
-<img src="assets/helios-banner.svg" alt="HELIOS" width="880">
+<img src="assets/helios-banner.svg" alt="HELIOS — Governed AI Command Center" width="880">
 
 <br/><br/>
 
 # HELIOS
 ## The AI Governance Control Plane
 
+**GOVERNED AI COMMAND CENTER — OBSERVE / CONSTRAIN / ENABLE**
+
 **HELIOS defines what AI systems are allowed to do, records what they actually
 did, evaluates whether they behaved correctly, and provides continuous
 assurance that they remain within policy.**
 
+```text
+AI SYSTEMS
+IN CONTEXT
+UNDER CONTROL
+```
+
 <br/>
 
 <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-00E676?style=flat-square&labelColor=0A1A0F">
-<img alt="Tests" src="https://img.shields.io/badge/tests-276_passing_in_~13s-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="Tests" src="https://img.shields.io/badge/tests-307_passing_in_~13s-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="Runtime deps" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="License" src="https://img.shields.io/badge/license-MIT-00E676?style=flat-square&labelColor=0A1A0F">
 
@@ -269,16 +277,42 @@ enforce.
   *baseline 100% of writes approved → observed 61% → `governance_drift`
   (critical)*.
 
-### The TUI: a governance control center
+### The operator console
+
+The TUI is an **equipment console**, not a dashboard: an equipment
+identification plate on boot (serial, revision, environment, state), 1px
+rules, rectangular panels, instrument glyphs, dense monospace metadata —
+quiet, severe, technical. The green is a signal (`● ENFORCING`), never
+decoration. It degrades gracefully: `NO_COLOR`, legacy encodings
+(`HELIOS_ASCII=1`), and 80-column terminals all get a complete,
+non-overflowing interface.
+
+```text
+┌─ HX-001 ──────────── PROPERTY OF HELIOS ──────────── FIELD UNIT ─┐
+│   H E L I O S                              │      SERIAL ACME-CORP│
+│   GOVERNED AI COMMAND CENTER              ─◯─      REV   V1.5.0  │
+│   OBSERVE / CONSTRAIN / ENABLE             ●       STATE GOVERNED│
+└──────────────────────────────────────────────────────────────────┘
+helios@control:~$ /systems
+```
+
+Keyboard-first: `1-9/a` switch planes' views, `j/k` + arrows move, `Enter`
+opens the selected record, `Esc` back, `Tab` cycle, `w` the WHY view,
+`A/D/E/C` decide an approval, `?` reference, `q` quit. The full slash-command
+surface is preserved:
 
 ```
 /systems  /system <id>  /models  /policies  /traces  /evaluations
-/approvals  /changes  /drift  /audit <system>  /replay system <id> [set-id]
+/approvals  /changes  /drift  /audit <system>  /score <id>  /why <record>
+/replay system <id> [set-id]
 ```
 
-plus the governed agent (`/sessions`, `/trace`, `/replay`, `/approve`,
-`/deny`). Every field on screen is backed by an API response — the overview
-panel:
+plus the governed agent shell (`/sessions`, `/trace`, `/resume`, `/cancel`,
+`/approve`, `/deny`) with its state machine drawn as an instrument column
+(`THINKING ↓ TOOL_PENDING ↓ RUNNING ↓ AWAITING_APPROVAL ↓ EXECUTED`).
+Every field on screen is backed by an API response — no invented metrics;
+failures render as system diagnostics with status, detail, and evidence ids.
+The system operator plate:
 
 ```
 ╭─ HELIOS · AI GOVERNANCE CONTROL PLANE ─────────────────────╮

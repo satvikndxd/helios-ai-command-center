@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="HELIOS mark">
+  <!-- HELIOS mark: an observation instrument. Monochrome-first; the center
+       dot is the only signal color (electric green #00E676). -->
+  <g stroke="#1A1A18" stroke-width="2" fill="none" stroke-linecap="square">
+    <line x1="32" y1="6"  x2="32" y2="20"/>
+    <line x1="10" y1="32" x2="22" y2="32"/>
+    <line x1="42" y1="32" x2="54" y2="32"/>
+    <line x1="32" y1="44" x2="32" y2="52"/>
+    <circle cx="32" cy="32" r="10"/>
+  </g>
+  <circle cx="32" cy="32" r="3.5" fill="#00E676"/>
+  <rect x="30.75" y="54" width="2.5" height="4" fill="#1A1A18"/>
+</svg>
