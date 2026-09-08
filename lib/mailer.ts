@@ -78,8 +78,8 @@ export async function sendWaitlistNotification(
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        Origin: "https://helios.is-a.dev",
-        Referer: "https://helios.is-a.dev/",
+        Origin: "https://helioscontrol.vercel.app",
+        Referer: "https://helioscontrol.vercel.app/",
       },
       body: JSON.stringify({
         _subject: `[HELIOS INTAKE] Access Request ${submission.requestId} — ${submission.industry}`,
