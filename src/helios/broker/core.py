@@ -144,7 +144,12 @@ class ToolBroker:
                 }
 
         risk = assess_risk(manifest, args, resource, context)
-        policy_decision = policy.evaluate(manifest, risk, context)
+        from helios.governance.classification import classify_args
+
+        classification = classify_args(args, context.data_classes)
+        policy_decision = policy.evaluate(
+            manifest, risk, context, data_class=classification.data_class
+        )
 
         return {
             "decision": policy_decision.decision,
@@ -153,6 +158,7 @@ class ToolBroker:
             "resource": resource,
             "permission": permission_results,
             "risk": risk.to_dict(),
+            "data_classification": classification.to_dict(),
             "policy": policy_decision.to_dict(),
             "manifest": {"name": manifest.name, "version": manifest.version,
                          "capability": manifest.capability},
@@ -202,14 +208,13 @@ class ToolBroker:
 
         # Data classification of the argument payload (EVIDENCE plane). A
         # write that carries PII/secret material is recorded as such.
-        from helios.governance.classification import classify_args
-
-        classification = classify_args(args, context.data_classes)
-        result.data_classes = classification.classes
-        if classification.data_class != "public":
+        classification = evaluation.get("data_classification") or {
+            "data_class": "public", "classes": [], "signals": []}
+        result.data_classes = classification.get("classes", [])
+        if classification.get("data_class", "public") != "public":
             recorder.record(
                 "data_access", tool_name,
-                {"classification": classification.to_dict(),
+                {"classification": classification,
                  "resource": evaluation.get("resource")},
                 parent_id=proposal.id,
                 risk=(evaluation.get("risk") or {}).get("risk"),

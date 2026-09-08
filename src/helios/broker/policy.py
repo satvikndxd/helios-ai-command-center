@@ -16,14 +16,17 @@ import fnmatch
 
 from helios.broker.types import (
     ALLOW,
+    BLOCK_DEPLOYMENT,
     DENY,
     REQUIRE_APPROVAL,
+    REQUIRE_HUMAN_REVIEW,
     InvocationContext,
     PolicyDecision,
     RiskAssessment,
     risk_at_least,
 )
 from helios.broker.manifest import ToolManifest
+from helios.governance.classification import at_least as data_class_at_least, max_class
 
 
 class ToolPolicy:
@@ -54,10 +57,11 @@ class ToolPolicy:
         manifest: ToolManifest,
         risk: RiskAssessment,
         context: InvocationContext,
+        data_class: str = "public",
     ) -> PolicyDecision:
         explanation: list[str] = []
         for rule in self.rules:
-            matched, why = _rule_matches(rule, manifest, risk, context)
+            matched, why = _rule_matches(rule, manifest, risk, context, data_class)
             if matched:
                 explanation.append(f"rule '{rule['id']}' matched: {why}")
                 return PolicyDecision(
@@ -84,6 +88,7 @@ def _rule_matches(
     manifest: ToolManifest,
     risk: RiskAssessment,
     context: InvocationContext,
+    data_class: str = "public",
 ) -> tuple[bool, str]:
     match = rule.get("match", {})
     checks: list[str] = []
@@ -132,6 +137,39 @@ def _rule_matches(
             return False, f"manifest approval '{manifest.approval}' != '{approval_mode}'"
         checks.append(f"manifest approval == '{approval_mode}'")
 
+    # --- V1.5 system-governance match keys -------------------------------
+
+    min_autonomy = match.get("min_autonomy_level")
+    if min_autonomy is not None:
+        if context.autonomy_level < min_autonomy:
+            return False, f"autonomy L{context.autonomy_level} below L{min_autonomy}"
+        checks.append(f"autonomy L{context.autonomy_level} >= L{min_autonomy}")
+
+    max_autonomy = match.get("max_autonomy_level")
+    if max_autonomy is not None:
+        if context.autonomy_level > max_autonomy:
+            return False, f"autonomy L{context.autonomy_level} above L{max_autonomy}"
+        checks.append(f"autonomy L{context.autonomy_level} <= L{max_autonomy}")
+
+    min_data = match.get("min_data_class")
+    if min_data is not None:
+        if not data_class_at_least(data_class, min_data):
+            return False, f"data class '{data_class}' below '{min_data}'"
+        checks.append(f"data class '{data_class}' >= '{min_data}'")
+
+    data_in = match.get("data_class_in")
+    if data_in is not None:
+        if data_class not in data_in:
+            return False, f"data class '{data_class}' not in {data_in}"
+        checks.append(f"data class '{data_class}' in {data_in}")
+
+    system_risk = match.get("system_risk_class")
+    if system_risk is not None:
+        risks = system_risk if isinstance(system_risk, list) else [system_risk]
+        if context.system_risk_class not in risks:
+            return False, f"system risk '{context.system_risk_class}' not in {risks}"
+        checks.append(f"system risk in {risks}")
+
     return True, ", ".join(checks) if checks else "unconditional"
 
 
@@ -143,6 +181,16 @@ DEFAULT_POLICY = ToolPolicy(
         "high-risk needs a human."
     ),
     rules=[
+        {
+            "id": "block_confidential_data_writes",
+            "match": {
+                "capability": ["write", "execute", "destructive", "network"],
+                "min_data_class": "confidential",
+            },
+            "effect": REQUIRE_HUMAN_REVIEW,
+            "reason": "actions carrying confidential/sensitive/PII data require "
+                      "human review",
+        },
         {
             "id": "deny_autonomous_production_writes",
             "match": {

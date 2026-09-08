@@ -144,6 +144,15 @@ def lifecycle(system_id: str, payload: LifecycleIn,
     return system_to_dict(system)
 
 
+@router.get("/{system_id}/lineage")
+def lineage(system_id: str, api_key: ApiKey = Depends(get_api_key),
+            db: Session = Depends(get_db)):
+    from helios.governance.lineage import system_lineage
+
+    _system_or_404(db, api_key, system_id)
+    return system_lineage(db, api_key.tenant_id, system_id)
+
+
 @router.get("/{system_id}/events")
 def events(system_id: str, api_key: ApiKey = Depends(get_api_key),
            db: Session = Depends(get_db)):
