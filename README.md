@@ -5,7 +5,7 @@
 <br/><br/>
 
 # HELIOS
-## The control plane for AI agents.
+## The Control Plane for AI Agents
 
 **Give agents access to your tools without giving them unrestricted access to your company.**
 
@@ -15,10 +15,66 @@
 <img alt="Tests" src="https://img.shields.io/badge/tests-138_passing_in_~5s-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="Runtime deps" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="License" src="https://img.shields.io/badge/license-MIT-00E676?style=flat-square&labelColor=0A1A0F">
+<img alt="GitHub Repo" src="https://img.shields.io/github/repo-size/satvikndxd/helios-ai-command-center?color=00E676&label=repo%20size&style=flat-square&labelColor=0A1A0F">
+
+<br/><br/>
+
+[How It Works](#how-it-works) • [Quick Start](#quick-start) • [Core Concepts](#core-concepts) • [Advanced Features](#advanced-features) • [API Reference](#api-reference) • [Security](#security-model) • [Development](#development)
 
 </div>
 
 ---
+
+## Quick Start
+
+### 1. Run HELIOS with mock providers (no API keys)
+
+```bash
+helios
+```
+
+This starts the control plane and opens the governed agent interface. Try the demo workflow:
+
+```
+you › fix the flaky timeout test and merge the fix
+
+  [THINKING]
+    → github.get_repo {"repo": "acme/api"}
+      risk [LOW] read operation
+      policy [ALLOW] low/medium-risk action within granted permissions
+      [OK]
+```
+
+### 2. Connect real providers
+
+When ready to work with real tools and models:
+
+```bash
+# Set your model provider (Groq, OpenAI, Anthropic, Gemini, or OpenRouter)
+export HELIOS_GROQ_API_KEY=...            # or HELIOS_OPENAI_API_KEY, etc.
+export HELIOS_AGENT_PROVIDER=groq
+
+# Configure GitHub access (optional — for github.* tools)
+export HELIOS_GITHUB_TOKEN=ghp_...        # GitHub personal access token
+export HELIOS_GITHUB_REPO=you/yourrepo    # The ONE repo this agent may touch
+
+helios
+```
+
+### 3. Explore the TUI commands
+
+| Command | Description |
+|---------|-------------|
+| `/sessions` | List all agent sessions |
+| `/session <id>` | View a specific session |
+| `/trace <run>` | Inspect a run's decision trace |
+| `/replay <run>` | Re-evaluate a run against a different policy |
+| `/resume` | Resume a paused session |
+| `/cancel` | Cancel a running agent |
+
+---
+
+## How It Works
 
 AI agents are useful exactly when they can touch real things — your repos, your
 shell, your filesystem, your APIs. That is also exactly when they are dangerous.
@@ -50,7 +106,7 @@ what did it cost.*
 
 ---
 
-## Sixty seconds of HELIOS
+## Example: Risk-Based Approval Flow
 
 ```console
 $ helios                       # starts the control plane, opens the governed agent
@@ -92,32 +148,11 @@ action + arguments; if the agent mutates the payload, the approval is void).
 
 ---
 
-## Install
+## Core Concepts
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/satvikndxd/helios-ai-command-center/main/install.sh | bash
-helios
-```
+HELIOS is built on five foundational primitives that work together to provide safe, governed agent execution:
 
-No sudo, everything under `~/.helios`, SQLite by default, works over SSH.
-Under two minutes on a clean machine. Zero API keys required to try it — the
-built-in `scripted`/`mock` providers run the entire governed loop offline.
-
-Connect the real world when ready:
-
-```bash
-export HELIOS_GROQ_API_KEY=...            # or OPENAI / ANTHROPIC / GEMINI / OPENROUTER
-export HELIOS_AGENT_PROVIDER=groq
-export HELIOS_GITHUB_TOKEN=ghp_...        # for the github.* tools
-export HELIOS_GITHUB_REPO=you/yourrepo    # the ONE repo this agent may touch
-helios
-```
-
----
-
-## The five primitives
-
-### 1 · Agent runtime
+### 1. Agent Runtime
 
 Persistent sessions that survive terminal closure; resume or fork them.
 Every run is an explicit state machine — the TUI never shows a blocked agent
@@ -128,9 +163,9 @@ thinking · planning · tool_pending · running · awaiting_approval · blocked
 completed · failed · cancelled
 ```
 
-`/sessions` `/session <id>` `/trace <run>` `/replay <run>` `/resume` `/cancel`
+**TUI Commands:** `/sessions` · `/session <id>` · `/trace <run>` · `/replay <run>` · `/resume` · `/cancel`
 
-### 2 · Tool Broker — the execution boundary
+### 2. Tool Broker — The Execution Boundary
 
 Every tool publishes a declarative manifest: name, version, owner, capability,
 input/output schema, base risk class, permission scopes, resource fields,
@@ -139,11 +174,9 @@ execution. The broker validates arguments, evaluates permissions → risk →
 policy, gates on approval, journals effects under idempotency keys (safe
 retry, no duplicate merges), and sanitizes every result.
 
-P0 tools: `fs.*` (workspace-jailed) · `shell.run` (no shell expansion,
-secret-stripped env, hard timeout) · `git.*` · `github.*` (real REST) ·
-`http.get` (domain allowlist) · `mcp.call` (trust-gated MCP).
+**P0 Tools:** `fs.*` (workspace-jailed) · `shell.run` (no shell expansion, secret-stripped env, hard timeout) · `git.*` · `github.*` (real REST) · `http.get` (domain allowlist) · `mcp.call` (trust-gated MCP)
 
-### 3 · Permissions — scopes with resource constraints
+### 3. Permissions — Scopes with Resource Constraints
 
 Not a boolean allow/deny matrix:
 
@@ -157,7 +190,7 @@ Grants understand organization, project, environment, agent identity, user
 identity, tool, resource, and data class. Deny by default; path traversal is
 normalized before the prefix check and re-checked in the executor.
 
-### 4 · Contextual risk + versioned policy
+### 4. Contextual Risk + Versioned Policy
 
 Risk is computed from tool × arguments × target × environment × actor, not
 from the tool name:
@@ -176,7 +209,7 @@ DENY · rule deny_autonomous_production_writes
 reason: production write forbidden for autonomous agents
 ```
 
-### 5 · Approval + audit
+### 5. Approval + Audit
 
 The approval binds to the exact payload hash — *approve action A, mutate
 payload, execute action B* is structurally impossible. Approvers can deny,
@@ -203,7 +236,9 @@ for network tools) — a tool result can never override policy.
 
 ---
 
-## Replay — govern the past against tomorrow's policy
+## Advanced Features
+
+### Replay — Govern the Past Against Tomorrow's Policy
 
 Any recorded run can be re-evaluated against the same policy, a newer one, or
 a candidate document — nothing executes, everything is compared:
@@ -223,7 +258,7 @@ you › /replay c079de31 candidate-strict-v2
 
 Test a policy change against last month's real agent traffic before deploying it.
 
-## External agents — observe what you didn't build
+### External Agents — Observe What You Didn't Build
 
 HELIOS also ingests OpenTelemetry-shaped traces from agents that were *not*
 built on HELIOS:
@@ -233,38 +268,55 @@ curl -X POST localhost:8000/v1/ingest/otel -H "X-Helios-API-Key: $KEY" \
   -d '{"resourceSpans": [...]}'    # spans land in the same trace store
 ```
 
-## API surface
+---
 
-```
-POST /v1/agent/sessions                GET  /v1/agent/sessions/{id}
-POST /v1/agent/sessions/{id}/messages  POST /v1/agent/sessions/{id}/fork
-GET  /v1/agent/runs/{id}/events        POST /v1/agent/runs/{id}/cancel|resume|retry|replay
-POST /v1/agent/approvals/{id}/decide   GET  /v1/approvals?status=pending
-GET  /v1/tools                         POST /v1/tools/invoke
-GET  /v1/policies                      POST /v1/ingest/otel
-```
+## API Reference
 
 Everything the TUI does goes through this API — build your own surface on it.
 
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/v1/agent/sessions` | Create a new agent session |
+| `GET` | `/v1/agent/sessions/{id}` | Get session details |
+| `POST` | `/v1/agent/sessions/{id}/messages` | Send a message to a session |
+| `POST` | `/v1/agent/sessions/{id}/fork` | Fork an existing session |
+| `GET` | `/v1/agent/runs/{id}/events` | Get run events |
+| `POST` | `/v1/agent/runs/{id}/cancel` | Cancel a run |
+| `POST` | `/v1/agent/runs/{id}/resume` | Resume a run |
+| `POST` | `/v1/agent/runs/{id}/retry` | Retry a failed run |
+| `POST` | `/v1/agent/runs/{id}/replay` | Replay a run with different policy |
+| `POST` | `/v1/agent/approvals/{id}/decide` | Submit an approval decision |
+| `GET` | `/v1/approvals?status=pending` | List pending approvals |
+| `GET` | `/v1/tools` | List available tools |
+| `POST` | `/v1/tools/invoke` | Invoke a tool directly |
+| `GET` | `/v1/policies` | List policies |
+| `POST` | `/v1/ingest/otel` | Ingest OpenTelemetry traces |
+
 ---
 
-## Security model
+## Security Model
 
-- **Single execution boundary** — no code path executes a tool outside the broker; unknown tools are denied at the manifest gate.
-- **Deny by default** — no grant, no rule, no execution.
-- **Payload-bound approvals** — SHA-256 over `{action, args}`; tampering invalidates.
-- **Idempotency journal** — retries replay the recorded effect instead of re-executing.
-- **Workspace jail** — filesystem/shell/git operate under one root; `../` and symlink escapes blocked at two layers.
-- **Secret hygiene** — subprocess env stripped of `*KEY*/*TOKEN*/*SECRET*`; secrets scrubbed from tool output *and* from every trace payload.
-- **Untrusted tool output** — injection patterns flagged; external content quarantined; instructions in tool results are data, never commands.
-- **Tenant isolation** — every query is tenant-scoped; sessions, runs, traces, approvals never cross tenants.
+| Boundary | Description |
+|----------|-------------|
+| **Single execution boundary** | No code path executes a tool outside the broker; unknown tools are denied at the manifest gate |
+| **Deny by default** | No grant, no rule, no execution |
+| **Payload-bound approvals** | SHA-256 over `{action, args}`; tampering invalidates |
+| **Idempotency journal** | Retries replay the recorded effect instead of re-executing |
+| **Workspace jail** | Filesystem/shell/git operate under one root; `../` and symlink escapes blocked at two layers |
+| **Secret hygiene** | Subprocess env stripped of `*KEY*/*TOKEN*/*SECRET*`; secrets scrubbed from tool output *and* from every trace payload |
+| **Untrusted tool output** | Injection patterns flagged; external content quarantined; instructions in tool results are data, never commands |
+| **Tenant isolation** | Every query is tenant-scoped; sessions, runs, traces, approvals never cross tenants |
 
 Each of these boundaries has tests (`tests/test_tool_broker.py`,
 `tests/test_agent_runtime.py`), including a full end-to-end flagship test:
 read → edit → test → branch → PR → merge request → CRITICAL → approval →
 execution → complete trace.
 
-## Model & gateway abstraction
+---
+
+## Additional Capabilities
+
+### Model & Gateway Abstraction
 
 Bring any model: OpenAI-compatible endpoints (Groq, OpenRouter, Together,
 local Ollama/vLLM/LM Studio, …), Anthropic, Gemini, or custom gateway
@@ -272,25 +324,50 @@ profiles with dynamic model discovery (`/refresh`) and router fallback
 chains. Credentials are referenced by env-var name and never stored. The
 abstraction is the point — provider count is not.
 
-## Also in the box (supporting capabilities)
+### Supporting Features
 
-Kept deliberately off the critical path: governed completions with PII/injection
-sentinel + RAG grounding, an evaluation worker (groundedness, refusal, latency)
-with a human review queue, governed web research adapters, MCP server registry
-with trust gating and budgets, encrypted browser sessions, domain workflow
-packs (Engineering/Software/Finance demos), and a human-gated self-improvement
-proposal loop. See [docs/](docs/).
+Kept deliberately off the critical path:
+
+- **Governed completions** with PII/injection sentinel + RAG grounding
+- **Evaluation worker** (groundedness, refusal, latency) with human review queue
+- **Governed web research adapters**
+- **MCP server registry** with trust gating and budgets
+- **Encrypted browser sessions**
+- **Domain workflow packs** (Engineering/Software/Finance demos)
+- **Human-gated self-improvement proposal loop**
+
+See [docs/](docs/) for detailed architecture documentation.
+
+---
 
 ## Development
 
+### Setup
+
 ```bash
 git clone https://github.com/satvikndxd/helios-ai-command-center && cd helios-ai-command-center
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+### Running Tests
+
+```bash
 PYTHONPATH=src .venv/bin/pytest tests -q        # 138 tests, ~5s, no network, no Postgres
+```
+
+### Starting the Server
+
+```bash
 PYTHONPATH=src .venv/bin/uvicorn helios.main:app  # SQLite by default
 ```
 
-Architecture map and V1 plan: [docs/V1_PLAN.md](docs/V1_PLAN.md).
+### Documentation
+
+- [V1 Architecture Plan](docs/V1_PLAN.md) — Implementation roadmap and engineering decisions
+- [Web Access Architecture](docs/WEB_ACCESS_ARCHITECTURE.md) — Detailed web access patterns
+- [Workflows](docs/WORKFLOWS.md) — Domain workflow documentation
+- [Technical Checklist](docs/YC27_TECHNICAL_CHECKLIST.md) — YC27 technical requirements
 
 ---
 
@@ -301,5 +378,9 @@ to do, who is doing it, decides whether it is allowed, asks a human when
 necessary, executes safely — and leaves an exact audit trail.*
 
 **That is HELIOS.**
+
+<br/>
+
+[⬆ Back to top](#helios)
 
 </div>
