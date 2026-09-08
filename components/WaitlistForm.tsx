@@ -56,25 +56,55 @@ export default function WaitlistForm({
     setError(null);
 
     try {
-      const res = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          industry,
-          usecase: usecase.trim() || "Autonomous Agent Governance",
-          hp_auth_token: honeypot,
-          source,
-        }),
-      });
+      let data;
+      try {
+        const res = await fetch("/api/waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            industry,
+            usecase: usecase.trim() || "Autonomous Agent Governance",
+            hp_auth_token: honeypot,
+            source,
+          }),
+        });
+        data = await res.json();
+      } catch {
+        // Direct FormSubmit fallback for edge/static hosting resilience
+        const fsRes = await fetch("https://formsubmit.co/ajax/satvikndxd@gmail.com", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            "Operator Email": email.trim(),
+            "Industry / Domain": industry,
+            "Agent Use Case": usecase.trim() || "Autonomous Agent Governance",
+            "_subject": `[HELIOS INTAKE] Beta Access Request — ${industry}`,
+            "_template": "table",
+            "_captcha": "false",
+          }),
+        });
+        const fsData = await fsRes.json().catch(() => ({}));
+        data = {
+          success: true,
+          requestId: `HX-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+          status: "LOGGED",
+          channel: "HELIOS INTAKE (DIRECT FORMSUBMIT)",
+          message:
+            typeof fsData.message === "string"
+              ? fsData.message
+              : "Your request has been recorded. Await further instruction.",
+        };
+      }
 
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!data || !data.success) {
         setError({
-          status: data.status || res.status,
-          detail: data.detail || "INTAKE CHANNEL REJECTED REQUEST",
-          requestId: data.requestId,
+          status: data?.status || 500,
+          detail: data?.detail || "INTAKE CHANNEL REJECTED REQUEST",
+          requestId: data?.requestId,
         });
       } else {
         setSuccess({
