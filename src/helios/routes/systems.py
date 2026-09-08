@@ -163,6 +163,59 @@ def oversight(system_id: str, api_key: ApiKey = Depends(get_api_key),
     return oversight_report(db, api_key.tenant_id, system_id)
 
 
+@router.get("/{system_id}/governance")
+def governance(system_id: str, api_key: ApiKey = Depends(get_api_key),
+               db: Session = Depends(get_db)):
+    from helios.governance.score import governance_score
+
+    _system_or_404(db, api_key, system_id)
+    try:
+        return governance_score(db, api_key.tenant_id, system_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/{system_id}/evaluation")
+def evaluation(system_id: str, api_key: ApiKey = Depends(get_api_key),
+               db: Session = Depends(get_db)):
+    from helios.governance.evaluation import evaluate_system
+
+    _system_or_404(db, api_key, system_id)
+    return evaluate_system(db, api_key.tenant_id, system_id)
+
+
+@router.get("/{system_id}/drift")
+def drift(system_id: str, api_key: ApiKey = Depends(get_api_key),
+          db: Session = Depends(get_db)):
+    from helios.governance.drift import detect_drift
+
+    _system_or_404(db, api_key, system_id)
+    return detect_drift(db, api_key.tenant_id, system_id)
+
+
+@router.post("/{system_id}/baseline", status_code=201)
+def baseline(system_id: str, api_key: ApiKey = Depends(get_api_key),
+             db: Session = Depends(get_db)):
+    from helios.governance.drift import capture_baseline
+
+    _system_or_404(db, api_key, system_id)
+    row = capture_baseline(db, api_key.tenant_id, system_id)
+    return {"system_id": system_id, "baseline_id": row.id,
+            "metrics": row.metrics, "sample_size": row.sample_size}
+
+
+@router.get("/{system_id}/audit")
+def audit(system_id: str, api_key: ApiKey = Depends(get_api_key),
+          db: Session = Depends(get_db)):
+    from helios.governance.audit import audit_report
+
+    _system_or_404(db, api_key, system_id)
+    try:
+        return audit_report(db, api_key.tenant_id, system_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @router.get("/{system_id}/events")
 def events(system_id: str, api_key: ApiKey = Depends(get_api_key),
            db: Session = Depends(get_db)):

@@ -8,6 +8,7 @@ from helios.routes import (
     actions,
     agents,
     browser,
+    changes,
     completions,
     datasets,
     decisions,
@@ -46,6 +47,7 @@ app.include_router(health.router)
 app.include_router(systems.router)
 app.include_router(gov_models.router)
 app.include_router(decisions.router)
+app.include_router(changes.router)
 app.include_router(agents.router)
 app.include_router(ingest.router)
 app.include_router(completions.router)
