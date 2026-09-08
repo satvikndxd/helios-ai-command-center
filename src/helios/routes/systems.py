@@ -153,6 +153,16 @@ def lineage(system_id: str, api_key: ApiKey = Depends(get_api_key),
     return system_lineage(db, api_key.tenant_id, system_id)
 
 
+@router.get("/{system_id}/oversight")
+def oversight(system_id: str, api_key: ApiKey = Depends(get_api_key),
+              db: Session = Depends(get_db)):
+    from helios.governance.oversight import expire_stale, oversight_report
+
+    _system_or_404(db, api_key, system_id)
+    expire_stale(db, api_key.tenant_id)
+    return oversight_report(db, api_key.tenant_id, system_id)
+
+
 @router.get("/{system_id}/events")
 def events(system_id: str, api_key: ApiKey = Depends(get_api_key),
            db: Session = Depends(get_db)):

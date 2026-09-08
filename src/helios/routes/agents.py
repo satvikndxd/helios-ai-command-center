@@ -71,6 +71,8 @@ class DecideIn(BaseModel):
     decision: str = Field(pattern="^(approved|denied|approve_session)$")
     decided_by: str = "operator"
     edited_args: dict | None = None
+    comment: str | None = None
+    ttl_seconds: int | None = Field(default=None, ge=1)  # approval expiry window
 
 
 class ReplayIn(BaseModel):
@@ -455,18 +457,49 @@ def decide_approval(
     else:
         approval.status = payload.decision
 
+    from helios.governance.oversight import add_comment, parse_expiry
+
+    if payload.comment:
+        add_comment(approval, payload.decided_by, payload.comment)
+    if approval.status == "approved" and payload.ttl_seconds:
+        approval.expires_at = parse_expiry(payload.ttl_seconds)
+
     approval.summary = summary
     approval.decided_by = payload.decided_by
     approval.decided_at = datetime.now(timezone.utc)
     db.commit()
+
+    # Update the matching model-use/tool DecisionRecords with the human
+    # oversight outcome so the evidence and oversight report stay accurate.
+    _apply_oversight_to_records(db, api_key.tenant_id, approval, run_id)
     return {
         "id": approval.id,
         "action": approval.action,
         "status": approval.status,
         "decided_by": approval.decided_by,
+        "expires_at": approval.expires_at.isoformat() if approval.expires_at else None,
+        "comments": approval.comments,
         "run_id": run_id,
         "session_id": session_id,
     }
+
+
+def _apply_oversight_to_records(db: Session, tenant_id: str, approval, run_id) -> None:
+    from helios.models import DecisionRecord
+
+    oversight = {"approved": "approved", "denied": "denied"}.get(approval.status)
+    if oversight is None:
+        return
+    records = (
+        db.query(DecisionRecord)
+        .filter(DecisionRecord.tenant_id == tenant_id,
+                DecisionRecord.approval_id == approval.id)
+        .all()
+    )
+    for record in records:
+        record.human_oversight = oversight
+        record.reviewer = approval.decided_by
+    db.commit()
 
 
 # --- tools + policies ------------------------------------------------------

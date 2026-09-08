@@ -359,6 +359,10 @@ class AgentRuntime:
         args = pending.get("args") or {}
         run.pending = None
         db.commit()
-        self._invoke(db, session, run, recorder, pending["tool"], args,
-                     idempotency_key=f"{run.id}:approval:{approval.id}")
+        outcome = self._invoke(db, session, run, recorder, pending["tool"], args,
+                               idempotency_key=f"{run.id}:approval:{approval.id}")
+        if outcome == "awaiting_approval":
+            # The approval expired (or was otherwise re-gated): the broker
+            # created a fresh pending request. Stop and wait for a human.
+            return run
         return await self._loop(db, session, run, recorder)

@@ -285,6 +285,18 @@ class ToolBroker:
                     )
                     .first()
                 )
+                if approved is not None and _approval_expired(approved):
+                    # An expired approval authorizes nothing — mark it and
+                    # fall through to a fresh pending request.
+                    approved.status = "expired"
+                    db.commit()
+                    recorder.record(
+                        "approval", tool_name,
+                        {"mode": "expired", "approval_id": approved.id,
+                         "detail": "approval expired before execution"},
+                        parent_id=proposal.id, status="expired",
+                    )
+                    approved = None
                 if approved is not None:
                     approval_id = approved.id
                     approval_mode = "existing"
@@ -421,6 +433,18 @@ class ToolBroker:
         result.warnings = warnings
         result.reason = evaluation["reason"]
         return result
+
+
+def _approval_expired(approval) -> bool:
+    """True if the approval carries an expiry that has passed."""
+    from datetime import datetime, timezone
+
+    if approval.expires_at is None:
+        return False
+    expires = approval.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) >= expires
 
 
 def sanitize_result(raw: dict, *, external: bool) -> tuple[dict, list[str]]:

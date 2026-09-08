@@ -680,6 +680,11 @@ class ApprovalRequest(Base):
     decided_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # V1.5 human oversight expansion: expiry, comments, delegated scope.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    comments: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
 
 
 class ActionEffect(Base):
