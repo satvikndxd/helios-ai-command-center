@@ -1,0 +1,250 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@700;800&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  --color-near-black: #0A0A08;
+  --color-paper: #DED8CB;
+  --color-light-paper: #E9E4D9;
+  --color-ink: #171714;
+  --color-muted-ink: #625F56;
+  --color-signal-green: #4C8F78;
+  --color-deep-green: #18382E;
+  
+  --color-border-dark: #232320;
+  --color-border-subtle-dark: #1A1A17;
+  --color-border-paper: #C7BFB0;
+  --color-border-paper-strong: #A99F8D;
+  
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display: 'Syne', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background-color: var(--color-near-black);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--color-near-black);
+  color: var(--color-paper);
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Subtle archival film/paper noise overlay */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Typography styles */
+.display-stamped {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4em;
+  color: var(--color-paper);
+}
+
+.mono-title {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.mono-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted-ink);
+}
+
+/* Paper Sheet Layout */
+.dossier-sheet {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  border: 1px solid var(--color-border-paper-strong);
+  position: relative;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+.dossier-sheet-dark {
+  background-color: var(--color-near-black);
+  color: var(--color-paper);
+  border: 1px solid var(--color-border-dark);
+  position: relative;
+}
+
+/* 1px Hairline rules */
+.rule-paper {
+  border: 0;
+  height: 1px;
+  background-color: var(--color-border-paper);
+  margin: 16px 0;
+}
+
+.rule-dark {
+  border: 0;
+  height: 1px;
+  background-color: var(--color-border-dark);
+  margin: 16px 0;
+}
+
+/* Instrument indicator pip */
+.indicator-pip {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background-color: var(--color-signal-green);
+  margin-right: 8px;
+  vertical-align: middle;
+  box-shadow: 0 0 6px rgba(76, 143, 120, 0.7);
+  animation: pulse-indicator 3.5s ease-in-out infinite;
+}
+
+.indicator-pip-idle {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background-color: var(--color-muted-ink);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+@keyframes pulse-indicator {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Terminal input & buttons */
+.terminal-input {
+  width: 100%;
+  background-color: #F4EFE6;
+  color: var(--color-ink);
+  border: 1px solid var(--color-border-paper-strong);
+  border-radius: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.terminal-input:focus {
+  border-color: var(--color-ink);
+  background-color: #FFFFFF;
+}
+
+.terminal-input::placeholder {
+  color: #8C887E;
+}
+
+.terminal-input-dark {
+  width: 100%;
+  background-color: #12120F;
+  color: var(--color-light-paper);
+  border: 1px solid var(--color-border-dark);
+  border-radius: 0;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  outline: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.terminal-input-dark:focus {
+  border-color: var(--color-signal-green);
+  background-color: #181814;
+}
+
+.terminal-input-dark::placeholder {
+  color: #4D4A43;
+}
+
+.terminal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  border: 1px solid var(--color-ink);
+  border-radius: 0;
+  padding: 12px 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.terminal-btn:hover:not(:disabled) {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+.terminal-btn:active:not(:disabled) {
+  background-color: var(--color-muted-ink);
+  color: #FFFFFF;
+}
+
+.terminal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.terminal-btn-green {
+  background-color: var(--color-deep-green);
+  color: var(--color-light-paper);
+  border: 1px solid var(--color-signal-green);
+}
+
+.terminal-btn-green:hover:not(:disabled) {
+  background-color: var(--color-signal-green);
+  color: #0A0A08;
+}
+
+/* Accessibility focus rings */
+a:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--color-signal-green);
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

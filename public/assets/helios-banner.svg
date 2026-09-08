@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="HELIOS — Governed AI Command Center equipment label">
+  <!-- HELIOS equipment identification plate.
+       Monochrome-first vector label: aged-paper field, hard rules,
+       monospace metadata, serial/revision identifiers, one signal accent.
+       No gradients. No raster. No glow. -->
+  <rect width="1200" height="400" fill="#050706"/>
+  <!-- paper field with notched ticket edges -->
+  <path d="M40 24 H1160 V60 l-14 12 14 12 V150 l-14 12 14 12 V376 H40 V300 l14 -12 -14 -12 V150 l14 -12 -14 -12 Z"
+        fill="#E8E4DA"/>
+  <g font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" fill="#141412">
+    <!-- top plate line -->
+    <text x="72"  y="64" font-size="15" letter-spacing="2">MX-001</text>
+    <text x="430" y="64" font-size="15" letter-spacing="4">PROPERTY OF HELIOS</text>
+    <text x="790" y="64" font-size="15" letter-spacing="2">FIELD UNIT</text>
+    <text x="980" y="64" font-size="15" letter-spacing="2">SERIAL 23-5931-7A</text>
+    <line x1="72" y1="82" x2="1128" y2="82" stroke="#141412" stroke-width="1"/>
+    <!-- wordmark -->
+    <text x="200" y="170" font-size="64" letter-spacing="26">HELIOS</text>
+    <text x="202" y="208" font-size="21" letter-spacing="7">GOVERNED AI COMMAND CENTER</text>
+    <!-- left margin doctrine -->
+    <text x="76" y="150" font-size="13" letter-spacing="2">A STRONGER</text>
+    <text x="76" y="170" font-size="13" letter-spacing="2">TOMORROW</text>
+    <text x="76" y="190" font-size="13" letter-spacing="2">THROUGH</text>
+    <text x="76" y="210" font-size="13" letter-spacing="2">CONTROL</text>
+    <!-- right instrument block -->
+    <line x1="760" y1="100" x2="760" y2="230" stroke="#141412" stroke-width="1"/>
+    <text x="782" y="132" font-size="14" letter-spacing="2">AI SYSTEMS</text>
+    <text x="782" y="154" font-size="14" letter-spacing="2">IN CONTEXT</text>
+    <text x="782" y="176" font-size="14" letter-spacing="2">UNDER CONTROL</text>
+    <line x1="930" y1="100" x2="930" y2="230" stroke="#141412" stroke-width="1"/>
+    <!-- insignia: observation instrument -->
+    <g stroke="#141412" stroke-width="3" fill="none">
+      <line x1="846" y1="104" x2="846" y2="140"/>
+      <line x1="846" y1="196" x2="846" y2="228"/>
+      <circle cx="846" cy="168" r="34"/>
+    </g>
+    <circle cx="846" cy="168" r="8" fill="#141412"/>
+    <text x="952" y="132" font-size="14" letter-spacing="2">PEOPLE</text>
+    <text x="952" y="154" font-size="14" letter-spacing="2">DATA</text>
+    <text x="952" y="176" font-size="14" letter-spacing="2">MODELS</text>
+    <text x="952" y="198" font-size="14" letter-spacing="2">TOOLS</text>
+    <!-- mid band: doctrine + revision + barcode -->
+    <line x1="72" y1="248" x2="1128" y2="248" stroke="#141412" stroke-width="1"/>
+    <path d="M100 292 l14 -22 14 22 z" fill="none" stroke="#141412" stroke-width="2"/>
+    <text x="170" y="292" font-size="20" letter-spacing="6">OBSERVE / CONSTRAIN / ENABLE</text>
+    <line x1="640" y1="262" x2="640" y2="304" stroke="#141412" stroke-width="1"/>
+    <text x="672" y="292" font-size="20" letter-spacing="4">V1.5.0</text>
+    <g fill="#141412">
+      <rect x="800" y="262" width="3"  height="42"/><rect x="807" y="262" width="1.5" height="42"/>
+      <rect x="813" y="262" width="4"  height="42"/><rect x="821" y="262" width="1.5" height="42"/>
+      <rect x="827" y="262" width="2.5" height="42"/><rect x="834" y="262" width="5"  height="42"/>
+      <rect x="843" y="262" width="1.5" height="42"/><rect x="849" y="262" width="3"  height="42"/>
+      <rect x="856" y="262" width="2"  height="42"/><rect x="862" y="262" width="4.5" height="42"/>
+      <rect x="871" y="262" width="1.5" height="42"/><rect x="877" y="262" width="3"  height="42"/>
+      <rect x="884" y="262" width="2"  height="42"/><rect x="890" y="262" width="5"  height="42"/>
+      <rect x="899" y="262" width="1.5" height="42"/><rect x="905" y="262" width="3"  height="42"/>
+      <rect x="912" y="262" width="2.5" height="42"/><rect x="919" y="262" width="1.5" height="42"/>
+      <rect x="925" y="262" width="4"  height="42"/><rect x="933" y="262" width="2"  height="42"/>
+    </g>
+    <!-- bottom plate line -->
+    <line x1="72" y1="330" x2="1128" y2="330" stroke="#141412" stroke-width="1"/>
+    <text x="100" y="358" font-size="13" letter-spacing="3">HELIOS LABS // GLOBAL DEPLOYMENT UNIT</text>
+    <text x="500" y="358" font-size="13" letter-spacing="3">REF HL-GOV-001</text>
+    <text x="700" y="358" font-size="13" letter-spacing="3">DO NOT REMOVE</text>
+    <!-- signal accents (the green is the signal) -->
+    <rect x="80"  y="316" width="26" height="6" fill="#0B8A43"/>
+    <rect x="1094" y="316" width="26" height="6" fill="#00E676"/>
+  </g>
+</svg>

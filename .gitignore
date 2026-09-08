@@ -1,4 +1,38 @@
-Nothing needs to be added to the .gitignore file since only a README.md file was modified and no build artifacts, dependencies, or temporary files were detected in the changes.
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Python caches
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Next.js build outputs
+.next/
+out/
+build/
+dist/
+
+# Environment files (NEVER COMMIT SECRETS)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS & Editor
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

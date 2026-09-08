@@ -33,6 +33,25 @@
     "terminal",
     "workflows"
   ],
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "resend": "3.5.0",
+    "sharp": "0.35.4"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.12",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "typescript": "5.5.3"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/satvikndxd/helios-ai-command-center.git"

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 220" width="760" height="220" role="img" aria-label="HELIOS equipment identification plate">
+  <!-- Compact equipment plate: the terminal header motif, as a label.
+       Monochrome-first; green reserved for the state signal. -->
+  <rect width="760" height="220" fill="#050706"/>
+  <rect x="8" y="8" width="744" height="204" fill="none" stroke="#3A423D" stroke-width="1"/>
+  <g font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace">
+    <text x="24" y="34" font-size="12" letter-spacing="2" fill="#8A948D">HX-001</text>
+    <text x="300" y="34" font-size="12" letter-spacing="3" fill="#8A948D">PROPERTY OF HELIOS</text>
+    <text x="640" y="34" font-size="12" letter-spacing="2" fill="#8A948D">FIELD UNIT</text>
+    <line x1="24" y1="46" x2="736" y2="46" stroke="#3A423D" stroke-width="1"/>
+    <text x="40" y="98" font-size="34" letter-spacing="14" fill="#E7E3D8">HELIOS</text>
+    <text x="42" y="126" font-size="14" letter-spacing="4" fill="#8A948D">GOVERNED AI COMMAND CENTER</text>
+    <!-- insignia -->
+    <g stroke="#34D399" stroke-width="2" fill="none">
+      <line x1="600" y1="62" x2="600" y2="82"/>
+      <line x1="576" y1="98" x2="588" y2="98"/>
+      <line x1="612" y1="98" x2="624" y2="98"/>
+      <line x1="600" y1="114" x2="600" y2="130"/>
+      <circle cx="600" cy="98" r="16"/>
+    </g>
+    <circle cx="600" cy="98" r="4" fill="#00E676"/>
+    <text x="652" y="80"  font-size="11" letter-spacing="2" fill="#5E6661">SERIAL</text>
+    <text x="652" y="98"  font-size="11" letter-spacing="2" fill="#8A948D">23-5931-7A</text>
+    <text x="652" y="116" font-size="11" letter-spacing="2" fill="#5E6661">REV</text>
+    <text x="652" y="132" font-size="11" letter-spacing="2" fill="#8A948D">V1.5.0</text>
+    <line x1="40" y1="150" x2="720" y2="150" stroke="#3A423D" stroke-width="1"/>
+    <text x="40" y="176" font-size="13" letter-spacing="4" fill="#5E6661">OBSERVE / CONSTRAIN / ENABLE</text>
+    <text x="560" y="176" font-size="13" letter-spacing="2" fill="#00E676">STATE GOVERNED</text>
+    <text x="40" y="198" font-size="11" letter-spacing="2" fill="#5E6661">AI SYSTEMS IN CONTEXT UNDER CONTROL</text>
+  </g>
+</svg>

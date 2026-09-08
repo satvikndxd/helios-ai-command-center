@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Helios mark — "the power ring is the prompt".
+    A glowing emerald ring (lantern-ring energy) on near-black, flanked by
+    two lantern bars, with the Helios terminal chevron ❯ and block cursor
+    burning at its core. Green/black scheme. Reads at 16px.
+  -->
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.45" r="0.9">
+      <stop offset="0" stop-color="#0E2416"/>
+      <stop offset="0.6" stop-color="#071209"/>
+      <stop offset="1" stop-color="#030704"/>
+    </radialGradient>
+    <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8CFFC0"/>
+      <stop offset="0.45" stop-color="#00E676"/>
+      <stop offset="1" stop-color="#0B8A43"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0B8A43"/>
+      <stop offset="0.5" stop-color="#00E676"/>
+      <stop offset="1" stop-color="#0B8A43"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- black plate -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="none"
+        stroke="#12351F" stroke-width="2"/>
+
+  <!-- ambient energy halo -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#00E676"
+          stroke-width="60" opacity="0.08"/>
+
+  <!-- lantern bars (above and below the ring) -->
+  <g fill="url(#barGrad)" filter="url(#softGlow)">
+    <rect x="192" y="60" width="128" height="18" rx="9"/>
+    <rect x="192" y="434" width="128" height="18" rx="9"/>
+  </g>
+
+  <!-- the ring: dark undertone + glowing emerald band -->
+  <circle cx="256" cy="256" r="150" fill="none" stroke="#032612"
+          stroke-width="40" opacity="0.9"/>
+  <circle cx="256" cy="256" r="150" fill="none" stroke="url(#ringGrad)"
+          stroke-width="24" filter="url(#glow)"/>
+  <!-- gleam highlight on the band -->
+  <path d="M 150 150 A 150 150 0 0 1 256 106" fill="none" stroke="#CFFFE3"
+        stroke-width="7" stroke-linecap="round" opacity="0.85"/>
+
+  <!-- core: the terminal prompt, burning green -->
+  <g filter="url(#softGlow)">
+    <path d="M 210 210 L 260 256 L 210 302"
+          fill="none" stroke="#2EE86B" stroke-width="28"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="284" y="288" width="44" height="26" rx="7" fill="#2EE86B"/>
+  </g>
+</svg>
