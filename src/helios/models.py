@@ -870,6 +870,9 @@ class AgentSession(Base):
     user_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     environment: Mapped[str] = mapped_column(String(20), nullable=False, default="dev")
     autonomy: Mapped[str] = mapped_column(String(20), nullable=False, default="supervised")
+    # V1.5: L0-L5 autonomy + binding to a registered AI system (IDENTITY plane)
+    autonomy_level: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    system_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     model_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="mock")
     model_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Permission grants (JSON list of grant dicts) — the agent's reach.
@@ -955,6 +958,204 @@ class TraceEvent(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="ok")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+# --- V1.5 governance control plane ------------------------------------------
+
+
+class AISystem(Base):
+    """
+    IDENTITY PLANE: a first-class registered AI system.
+
+    The central object governance operates around: who owns it, what it is
+    for, what autonomy it has, which models/tools/data it may touch, and
+    which policies bind it.
+    """
+
+    __tablename__ = "ai_systems"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    system_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # slug
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner: Mapped[str] = mapped_column(String(255), nullable=False, default="unassigned")
+    organization: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    purpose: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    environment: Mapped[str] = mapped_column(String(20), nullable=False, default="dev")
+    lifecycle: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft"
+    )  # draft | active | archived
+    autonomy_level: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # L0-L5
+    risk_class: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    models: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    tools: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    data_classes: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    policies: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    oversight: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    revisions: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class AIModel(Base):
+    """
+    POLICY PLANE: a governable model, independent of any agent.
+
+    Unknown models are NOT APPROVED by definition (registry lookup fails).
+    """
+
+    __tablename__ = "ai_models"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(50), nullable=False, default="1")
+    capabilities: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    region: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    pricing: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    risk_class: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="proposed"
+    )  # proposed | approved | revoked
+    allowed_data_classes: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    allowed_environments: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class DecisionRecord(Base):
+    """
+    EVIDENCE PLANE: normalized AI Decision Record (stable, versioned schema).
+
+    One row per governed decision — tool proposals, model-use checks,
+    change decisions — regardless of which surface produced it.
+    """
+
+    __tablename__ = "decision_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    schema_version: Mapped[str] = mapped_column(String(10), nullable=False, default="1.0")
+    system_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    actor: Mapped[str] = mapped_column(String(150), nullable=False, default="unknown")
+    kind: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="tool_call"
+    )  # tool_call | model_use | change | deployment
+    action: Mapped[str] = mapped_column(String(150), nullable=False)
+    model_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    data_classes: Mapped[list] = mapped_column(JSONType, nullable=False, default=list)
+    resource: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    risk: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    risk_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    policy_rule: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    decision: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    human_oversight: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="not_required"
+    )  # not_required | required | approved | denied | bypassed
+    reviewer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    approval_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    trace_event_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    evidence: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ChangeRecord(Base):
+    """
+    ASSURANCE PLANE: first-class governance for changes to AI systems.
+
+    CURRENT -> CANDIDATE -> REPLAY -> EVALUATION -> HUMAN REVIEW ->
+    APPROVED -> DEPLOYED (-> ROLLED_BACK). Nothing changes invisibly.
+    """
+
+    __tablename__ = "change_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    system_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # policy | model | prompt | tool | config
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    author: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
+    current: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    candidate: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    evidence: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft"
+    )  # draft | replayed | in_review | approved | rejected | deployed | rolled_back
+    decided_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rollback_target: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class GovernanceBaseline(Base):
+    """ASSURANCE PLANE: a stored behavioral baseline for drift detection."""
+
+    __tablename__ = "governance_baselines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    system_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metrics: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GovernanceEvaluation(Base):
+    """ASSURANCE PLANE: one governance evaluation snapshot for a system."""
+
+    __tablename__ = "governance_evaluations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    tenant_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tenants.id"), nullable=False, index=True
+    )
+    system_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    metrics: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

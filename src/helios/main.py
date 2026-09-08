@@ -10,13 +10,16 @@ from helios.routes import (
     browser,
     completions,
     datasets,
+    decisions,
     evolution,
+    gov_models,
     health,
     ingest,
     knowledge,
     mcp,
     review,
     simulations,
+    systems,
     traces,
     web,
     workflows,
@@ -40,6 +43,9 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(systems.router)
+app.include_router(gov_models.router)
+app.include_router(decisions.router)
 app.include_router(agents.router)
 app.include_router(ingest.router)
 app.include_router(completions.router)

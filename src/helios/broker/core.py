@@ -36,6 +36,7 @@ from helios.broker.types import (
     ALLOW,
     DENY,
     REQUIRE_APPROVAL,
+    REQUIRE_HUMAN_REVIEW,
     InvocationContext,
 )
 from helios.models import ActionEffect, ApprovalRequest
@@ -61,6 +62,10 @@ class BrokerResult:
     replayed: bool = False
     reason: str = ""
     proposal_event_id: str | None = None
+    resource: dict | None = None
+    data_classes: list[str] = field(default_factory=list)
+    human_oversight: str = "not_required"
+    decided_by: str | None = None
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -192,7 +197,23 @@ class ToolBroker:
             policy=evaluation.get("policy"),
             reason=evaluation["reason"],
             proposal_event_id=proposal.id,
+            resource=evaluation.get("resource"),
         )
+
+        # Data classification of the argument payload (EVIDENCE plane). A
+        # write that carries PII/secret material is recorded as such.
+        from helios.governance.classification import classify_args
+
+        classification = classify_args(args, context.data_classes)
+        result.data_classes = classification.classes
+        if classification.data_class != "public":
+            recorder.record(
+                "data_access", tool_name,
+                {"classification": classification.to_dict(),
+                 "resource": evaluation.get("resource")},
+                parent_id=proposal.id,
+                risk=(evaluation.get("risk") or {}).get("risk"),
+            )
 
         # Record each decision layer under the proposal.
         if evaluation.get("permission") is not None:
@@ -235,10 +256,13 @@ class ToolBroker:
         approval_id: str | None = None
         approval_mode = "none"
 
-        if evaluation["decision"] == REQUIRE_APPROVAL:
+        if evaluation["decision"] in (REQUIRE_APPROVAL, REQUIRE_HUMAN_REVIEW):
+            result.human_oversight = "required"
             # 1. session-scoped standing approval for this exact tool?
             if any(sa.get("tool") == tool_name for sa in session_approvals):
                 approval_mode = "session"
+                result.human_oversight = "approved"
+                result.decided_by = "session"
                 recorder.record(
                     "approval", tool_name,
                     {"mode": "session", "detail": "approved for session by user"},
@@ -259,6 +283,8 @@ class ToolBroker:
                 if approved is not None:
                     approval_id = approved.id
                     approval_mode = "existing"
+                    result.human_oversight = "approved"
+                    result.decided_by = approved.decided_by
                     recorder.record(
                         "approval", tool_name,
                         {"mode": "payload_bound", "approval_id": approved.id,
@@ -285,6 +311,9 @@ class ToolBroker:
                             "run_id": context.run_id,
                             "risk": evaluation.get("risk"),
                             "policy": evaluation.get("policy"),
+                            "oversight_kind": ("human_review"
+                                               if evaluation["decision"] == REQUIRE_HUMAN_REVIEW
+                                               else "approval"),
                             "args_editable": manifest.args_editable,
                             "proposal_event_id": proposal.id,
                         },

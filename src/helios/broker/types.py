@@ -17,6 +17,11 @@ RISK_LEVELS = ("low", "medium", "high", "critical")
 ALLOW = "allow"
 DENY = "deny"
 REQUIRE_APPROVAL = "require_approval"
+REQUIRE_HUMAN_REVIEW = "require_human_review"
+BLOCK_DEPLOYMENT = "block_deployment"
+
+# Decisions that halt execution pending a human.
+HUMAN_GATED = (REQUIRE_APPROVAL, REQUIRE_HUMAN_REVIEW)
 
 
 def risk_at_least(risk: str, threshold: str) -> bool:
@@ -46,6 +51,9 @@ class InvocationContext:
     session_id: str | None = None
     run_id: str | None = None
     autonomy: str = "supervised"       # supervised | autonomous
+    autonomy_level: int = 2            # L0-L5 (IDENTITY/POLICY plane)
+    system_id: str | None = None       # registered AI system this run belongs to
+    system_risk_class: str | None = None
     data_classes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -59,6 +67,9 @@ class InvocationContext:
             "session_id": self.session_id,
             "run_id": self.run_id,
             "autonomy": self.autonomy,
+            "autonomy_level": self.autonomy_level,
+            "system_id": self.system_id,
+            "system_risk_class": self.system_risk_class,
             "data_classes": list(self.data_classes),
         }
 
@@ -74,6 +85,9 @@ class InvocationContext:
             session_id=data.get("session_id"),
             run_id=data.get("run_id"),
             autonomy=data.get("autonomy", "supervised"),
+            autonomy_level=int(data.get("autonomy_level", 2)),
+            system_id=data.get("system_id"),
+            system_risk_class=data.get("system_risk_class"),
             data_classes=list(data.get("data_classes") or []),
         )
 

@@ -54,6 +54,8 @@ class SessionIn(BaseModel):
     name: str = "session"
     environment: str = Field(default="dev", pattern="^(dev|staging|production)$")
     autonomy: str = Field(default="supervised", pattern="^(supervised|autonomous)$")
+    autonomy_level: int | None = Field(default=None, ge=0, le=5)
+    system_id: str | None = None  # bind to a registered AI system (IDENTITY plane)
     model_provider: str | None = None
     model_id: str | None = None
     github_repo: str | None = None
@@ -115,8 +117,10 @@ def _session_dict(session: AgentSession, include_messages: bool = False) -> dict
         "id": session.id,
         "name": session.name,
         "agent_id": session.agent_id,
+        "system_id": session.system_id,
         "environment": session.environment,
         "autonomy": session.autonomy,
+        "autonomy_level": session.autonomy_level,
         "model_provider": session.model_provider,
         "model_id": session.model_id,
         "status": session.status,
@@ -158,6 +162,28 @@ def create_session(
     db: Session = Depends(get_db),
 ):
     from helios.config import settings
+    from helios.governance.systems import get_system
+
+    environment = payload.environment
+    autonomy = payload.autonomy
+    autonomy_level = payload.autonomy_level
+    system = None
+    if payload.system_id:
+        system = get_system(db, api_key.tenant_id, payload.system_id)
+        if system is None:
+            raise HTTPException(status_code=404,
+                                detail=f"AI system '{payload.system_id}' not found")
+        if system.lifecycle == "archived":
+            raise HTTPException(status_code=409,
+                                detail="AI system is archived; cannot start a session")
+        # The session inherits the registered system's governance context.
+        environment = system.environment
+        autonomy_level = system.autonomy_level if autonomy_level is None else autonomy_level
+
+    if autonomy_level is None:
+        autonomy_level = 3 if autonomy == "autonomous" else 2
+    # keep the legacy string in sync with the level (L>=3 -> autonomous)
+    autonomy = "autonomous" if autonomy_level >= 3 else "supervised"
 
     grants = payload.grants
     if grants is None:
@@ -167,8 +193,10 @@ def create_session(
     session = AgentSession(
         tenant_id=api_key.tenant_id,
         name=payload.name,
-        environment=payload.environment,
-        autonomy=payload.autonomy,
+        environment=environment,
+        autonomy=autonomy,
+        autonomy_level=autonomy_level,
+        system_id=payload.system_id,
         model_provider=payload.model_provider or settings.default_provider,
         model_id=payload.model_id,
         grants=grants,

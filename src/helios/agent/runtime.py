@@ -44,13 +44,44 @@ from helios.providers import get_provider
 TERMINAL_STATES = {"completed", "failed", "cancelled", "blocked"}
 
 
+class ModelGovernanceBlocked(Exception):
+    """The model call was blocked by the Model Registry governance gate."""
+
+
+def _emit_tool_decision(db, context, tool_name, result) -> None:
+    """Write a normalized DecisionRecord for one brokered tool decision."""
+    from helios.governance.decisions import record_tool_decision
+
+    decision = {
+        "executed": "allow",
+        "denied": "deny",
+        "approval_required": "require_approval",
+        "error": "error",
+    }.get(result.status, result.status)
+    record_tool_decision(
+        db, context,
+        tool=tool_name,
+        decision=decision,
+        reason=result.reason,
+        risk=result.risk,
+        policy=result.policy,
+        resource=result.resource,
+        data_classes=result.data_classes,
+        human_oversight=result.human_oversight,
+        reviewer=result.decided_by,
+        approval_id=result.approval_id,
+        trace_event_id=result.proposal_event_id,
+    )
+
+
 class AgentRuntime:
     def __init__(self, broker: ToolBroker | None = None):
         self.broker = broker or ToolBroker(default_registry())
 
     # -- helpers -----------------------------------------------------------
 
-    def _context(self, session: AgentSession, run: AgentRun) -> InvocationContext:
+    def _context(self, db: Session, session: AgentSession, run: AgentRun) -> InvocationContext:
+        system = self._system(db, session)
         return InvocationContext(
             tenant_id=session.tenant_id,
             environment=session.environment,
@@ -59,7 +90,18 @@ class AgentRuntime:
             session_id=session.id,
             run_id=run.id,
             autonomy=session.autonomy,
+            autonomy_level=getattr(session, "autonomy_level", 2),
+            system_id=session.system_id,
+            system_risk_class=system.risk_class if system is not None else None,
+            data_classes=list(system.data_classes or []) if system is not None else [],
         )
+
+    @staticmethod
+    def _system(db: Session, session: AgentSession):
+        if not session.system_id:
+            return None
+        from helios.governance.systems import get_system
+        return get_system(db, session.tenant_id, session.system_id)
 
     def _recorder(self, db: Session, session: AgentSession, run: AgentRun) -> TraceRecorder:
         last = (
@@ -91,8 +133,54 @@ class AgentRuntime:
 
     # -- model call --------------------------------------------------------
 
+    def _model_governance_gate(self, db: Session, session: AgentSession,
+                               run: AgentRun, recorder: TraceRecorder) -> None:
+        """
+        POLICY PLANE: gate the model call itself when the session is bound to
+        a registered AI system. Unknown/unapproved models, or approved models
+        receiving data classes they are not cleared for, block the run.
+        """
+        if not session.system_id:
+            return  # unbound sessions keep V1 behavior
+        from helios.governance.classification import classify_text
+        from helios.governance.model_registry import evaluate_model_use
+
+        declared = self._session_data_classes_for(db, session)
+        latest_user = next(
+            (m["content"] for m in reversed(session.messages or [])
+             if m.get("role") == "user"), "",
+        )
+        classification = classify_text(latest_user, declared)
+        model_id = session.model_id or settings.default_model
+        decision = evaluate_model_use(
+            db, session.tenant_id, session.model_provider, model_id,
+            data_classes=classification.classes, environment=session.environment,
+        )
+        recorder.record(
+            "model_governance", f"{session.model_provider}/{model_id}",
+            {"decision": decision.to_dict(), "data_classification": classification.to_dict()},
+            status="ok" if decision.allowed else "denied",
+            risk=decision.risk_class,
+        )
+        from helios.governance.decisions import record_model_use_decision
+        record_model_use_decision(db, session, run, decision, classification)
+        if not decision.allowed:
+            raise ModelGovernanceBlocked(
+                f"model use denied ({decision.status}): "
+                + "; ".join(decision.reasons)
+            )
+
+    @staticmethod
+    def _session_data_classes_for(db: Session, session: AgentSession) -> list[str]:
+        if not session.system_id:
+            return []
+        from helios.governance.systems import get_system
+        system = get_system(db, session.tenant_id, session.system_id)
+        return list(system.data_classes or []) if system is not None else []
+
     async def _model_call(self, db: Session, session: AgentSession,
                           run: AgentRun, recorder: TraceRecorder) -> dict:
+        self._model_governance_gate(db, session, run, recorder)
         manifests = self.broker.registry.list()
         prompt = SYSTEM_PROMPT.format(tools=render_tools(manifests))
         transcript = render_transcript(
@@ -129,6 +217,12 @@ class AgentRuntime:
         recorder = self._recorder(db, session, run)
         try:
             return await self._loop(db, session, run, recorder)
+        except ModelGovernanceBlocked as exc:
+            run.error = {"message": str(exc)[:1000], "kind": "model_governance"}
+            self._set_state(db, recorder, run, "blocked", str(exc)[:200])
+            recorder.record("outcome", "blocked", {"reason": str(exc)[:500],
+                            "kind": "model_governance"}, status="blocked")
+            return run
         except Exception as exc:  # runtime failure is a state, not a 500
             run.error = {"message": str(exc)[:1000]}
             self._set_state(db, recorder, run, "failed", str(exc)[:200])
@@ -184,13 +278,15 @@ class AgentRuntime:
                 idempotency_key: str | None = None) -> str:
         """Send one proposal through the broker; feed the outcome back."""
         self._set_state(db, recorder, run, "running", f"executing {tool_name}")
+        context = self._context(db, session, run)
         result = self.broker.invoke(
-            db, self._context(session, run), tool_name, args,
+            db, context, tool_name, args,
             permissions=PermissionSet(session.grants or []),
             recorder=recorder,
             idempotency_key=idempotency_key or f"{run.id}:{recorder.seq}",
             session_approvals=list(session.session_approvals or []),
         )
+        _emit_tool_decision(db, context, tool_name, result)
 
         if result.status == "approval_required":
             run.pending = {
