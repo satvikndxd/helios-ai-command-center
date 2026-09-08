@@ -35,6 +35,10 @@ class InvocationContext:
 
     The permission, risk, and policy layers all key off this — the same tool
     call can be low risk for one context and critical for another.
+
+    V1.5 adds IDENTITY-plane fields: `system_id` (the registered AI system
+    this call belongs to, if any) and `autonomy_level` (canonical L0-L5;
+    derived from the legacy `autonomy` string when not set explicitly).
     """
 
     tenant_id: str
@@ -45,8 +49,10 @@ class InvocationContext:
     user_id: str | None = None         # human on whose behalf the agent acts
     session_id: str | None = None
     run_id: str | None = None
-    autonomy: str = "supervised"       # supervised | autonomous
+    autonomy: str = "supervised"       # supervised | autonomous (V1 vocabulary)
     data_classes: list[str] = field(default_factory=list)
+    system_id: str | None = None       # registered AI system (V1.5)
+    autonomy_level: int | None = None  # L0..L5; None -> derived from `autonomy`
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +66,8 @@ class InvocationContext:
             "run_id": self.run_id,
             "autonomy": self.autonomy,
             "data_classes": list(self.data_classes),
+            "system_id": self.system_id,
+            "autonomy_level": self.autonomy_level,
         }
 
     @classmethod
@@ -75,7 +83,16 @@ class InvocationContext:
             run_id=data.get("run_id"),
             autonomy=data.get("autonomy", "supervised"),
             data_classes=list(data.get("data_classes") or []),
+            system_id=data.get("system_id"),
+            autonomy_level=data.get("autonomy_level"),
         )
+
+    def effective_autonomy_level(self) -> int:
+        """Canonical L0-L5: explicit level wins, else derived from the legacy string."""
+        if self.autonomy_level is not None:
+            return self.autonomy_level
+        from helios.governance.autonomy import normalize_level
+        return normalize_level(self.autonomy)
 
 
 @dataclass

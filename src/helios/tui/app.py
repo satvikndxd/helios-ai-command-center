@@ -35,6 +35,7 @@ from helios.tui import (
 )
 from helios.tui import ui
 from helios.tui.agent import AgentPane
+from helios.tui.governance import GovernancePane
 from helios.tui.ui import Spinner, badge, bullet, c, error, kv, panel, risk_badge, success, table
 
 try:  # pragma: no cover - readline is absent on some platforms
@@ -43,6 +44,18 @@ except ImportError:  # pragma: no cover
     pass
 
 HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Governance (AI systems, policy, evidence, assurance)", [
+        ("/systems [q]", "AI system registry — what AI systems do we have?"),
+        ("/system <id>", "System overview: owner, risk, autonomy, models, score, drift"),
+        ("/models", "Model registry — approval status, data ceilings, environments"),
+        ("/policies", "Tool policies + governance policy sets"),
+        ("/traces [system]", "Decision records — what actually happened"),
+        ("/evaluations [system]", "Governance/benchmark evaluation runs"),
+        ("/changes [system]", "AI change records + lifecycle states"),
+        ("/drift [system]", "Drift signals (system arg runs a fresh check)"),
+        ("/audit <system>", "Governance evidence report for one system"),
+        ("/replay system <id> [set-id]", "Replay system history vs a candidate policy"),
+    ]),
     ("Agent (governed — just type to talk)", [
         ("<message>", "Send to the agent; tools flow through the broker"),
         ("/sessions · /session <id>", "List / resume persistent sessions"),
@@ -62,7 +75,7 @@ HELP_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
         ("/gateway [name]", "Show or switch the active gateway"),
         ("/connect <name>", "Alias for /gateway <name>"),
         ("/model [name]", "Show or set the model"),
-        ("/models", "List models cached from the last /refresh"),
+        ("/models discovered", "List models cached from the last /refresh"),
         ("/refresh", "Discover models via GET /models"),
     ]),
     ("Workspaces & workflows (governed)", [
@@ -95,6 +108,7 @@ class HeliosTUI:
         self.models: list[str] = []
         self.workspace: str | None = None  # active domain workspace
         self.agent = AgentPane(self._web_call)
+        self.governance = GovernancePane(self._web_call)
 
     # -- presentation -----------------------------------------------------
 
@@ -167,10 +181,13 @@ class HeliosTUI:
             else:
                 print(kv("model", self.model or "auto (router decides)"))
         elif command == "/models":
-            if not self.models:
-                print(c("  No cached models — run /refresh first.", "dim"))
-            for model_id in self.models:
-                print(bullet(model_id, mark="·", color="dim"))
+            if args and args[0] == "discovered":
+                if not self.models:
+                    print(c("  No cached models — run /refresh first.", "dim"))
+                for model_id in self.models:
+                    print(bullet(model_id, mark="·", color="dim"))
+            else:
+                self.governance.models()
         elif command == "/refresh":
             try:
                 with Spinner("discovering models"):
@@ -196,7 +213,26 @@ class HeliosTUI:
         elif command == "/trace":
             self.agent.show_trace(args[0] if args else None)
         elif command == "/replay":
-            self.agent.replay(args)
+            if args and args[0] == "system":
+                self.governance.replay_system(args[1:])
+            else:
+                self.agent.replay(args)
+        elif command == "/systems":
+            self.governance.systems(args)
+        elif command == "/system":
+            self.governance.system_overview(args)
+        elif command == "/policies":
+            self.governance.policies()
+        elif command == "/traces":
+            self.governance.traces(args)
+        elif command == "/evaluations":
+            self.governance.evaluations(args)
+        elif command == "/changes":
+            self.governance.changes(args)
+        elif command == "/drift":
+            self.governance.drift(args)
+        elif command == "/audit":
+            self.governance.audit(args)
         elif command == "/resume":
             self.agent.resume(args[0] if args else None)
         elif command == "/cancel":
@@ -209,17 +245,7 @@ class HeliosTUI:
         elif command == "/web":
             self.handle_web(args)
         elif command == "/approvals":
-            data = self._web_call("GET", "/v1/approvals?status=pending")
-            if data:
-                approvals = data.get("approvals", [])
-                if not approvals:
-                    print(c("  No pending approvals.", "dim"))
-                else:
-                    print(table(
-                        ["id", "action", "risk"],
-                        [[a["id"][:8], a["action"], risk_badge(a["risk"])]
-                         for a in approvals],
-                    ))
+            self.governance.approvals()
         elif command in ("/approve", "/deny"):
             if not args:
                 print(error(f"Usage: {command} <approval-id>"))

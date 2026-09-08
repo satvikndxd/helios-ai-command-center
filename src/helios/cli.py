@@ -230,6 +230,12 @@ def main() -> None:
     )
 
     subparsers.add_parser(
+        "governance-demo",
+        help="Flagship AI-governance demo: register a system, approve its "
+             "model, gate its deployment, run it under policy + human "
+             "oversight, then replay/score/audit it (zero config, no keys)",
+    )
+    subparsers.add_parser(
         "demo",
         help="Initialize the synthetic multi-workspace demo environment",
     )
@@ -244,6 +250,10 @@ def main() -> None:
         gateway_list()
     elif args.command == "demo":
         demo()
+    elif args.command == "governance-demo":
+        from helios.governance.demo import main as governance_demo
+
+        governance_demo()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-.PHONY: up seed curl-complete traces worker test tui demo
+.PHONY: up seed curl-complete traces worker test tui demo governance-demo
 
 GATEWAY ?= helios
 
@@ -7,6 +7,9 @@ tui:
 
 demo:
 	PYTHONPATH=src python -m helios.cli demo
+
+governance-demo:
+	PYTHONPATH=src python -m helios.governance.demo
 
 up:
 	docker compose up --build

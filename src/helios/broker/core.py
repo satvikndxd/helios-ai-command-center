@@ -62,6 +62,10 @@ class BrokerResult:
     reason: str = ""
     proposal_event_id: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # V1.5 POLICY plane: system-level governance decision (when the call is
+    # bound to a registered AI system). Escalation-only over the tool policy.
+    governance: dict | None = None
+    data_classification: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +75,8 @@ class BrokerResult:
             "permission": self.permission,
             "risk": self.risk,
             "policy": self.policy,
+            "governance": self.governance,
+            "data_classification": self.data_classification,
             "approval_id": self.approval_id,
             "approval_mode": self.approval_mode,
             "result": self.result,
@@ -171,6 +177,30 @@ class ToolBroker:
         args_hash = hash_args(tool_name, args)
         session_approvals = session_approvals or []
 
+        # --- V1.5 IDENTITY/POLICY planes: resolve the registered AI system
+        # and classify the payload data BEFORE the decision pipeline, so the
+        # risk engine and governance overlay see real data classes.
+        system = None
+        if context.system_id:
+            from helios.governance.systems import get_system
+
+            system = get_system(db, context.tenant_id, context.system_id)
+        from helios.governance.data import classify_args
+
+        declared = list(context.data_classes or [])
+        if system is not None:
+            declared = sorted(set(declared) | set(system.data_classes or []))
+        classification = classify_args(args, declared=declared)
+        if system is not None:
+            # Governed calls: the classified data posture feeds the risk engine
+            # and the governance overlay. Legacy (unbound) calls keep exact V1
+            # semantics — classification is recorded as evidence but does not
+            # alter risk scoring, preserving backward compatibility.
+            context.data_classes = sorted(
+                set(declared) | set(classification["detected"])
+                | {classification["effective"]}
+            )
+
         proposal = recorder.record(
             "tool_proposal",
             tool_name,
@@ -179,8 +209,42 @@ class ToolBroker:
                 "args": args,
                 "args_hash": args_hash,
                 "context": context.to_dict(),
+                "system_id": context.system_id,
+                "data_classification": classification,
             },
         )
+
+        # --- V1.5 lifecycle gate: a blocked/suspended/archived AI system does
+        # not execute. Identity state is governance state.
+        if system is not None and system.lifecycle in ("blocked", "suspended",
+                                                        "archived"):
+            reason = (
+                f"ai system '{system.system_id}' is {system.lifecycle} — "
+                "execution is not permitted"
+            )
+            if system.lifecycle == "blocked" and system.blocked_reason:
+                reason += f" ({system.blocked_reason.get('detail', '')})"
+            governance_payload = {
+                "decision": "deny",
+                "reason": reason,
+                "explanation": [f"system lifecycle state: {system.lifecycle}"],
+                "matched_rules": [{"set": "helios-identity", "version": "v1",
+                                   "rule_id": "lifecycle_gate", "effect": "deny",
+                                   "why": f"lifecycle == {system.lifecycle}"}],
+                "policy_versions": ["helios-identity@v1"],
+            }
+            result_lifecycle = BrokerResult(
+                status="denied", tool=tool_name, args_hash=args_hash,
+                reason=reason, proposal_event_id=proposal.id,
+                data_classification=classification,
+                governance=governance_payload,
+            )
+            recorder.record("governance_evaluation", tool_name, governance_payload,
+                            parent_id=proposal.id, status="deny")
+            recorder.record("outcome", tool_name,
+                            {"status": "denied", "reason": reason},
+                            parent_id=proposal.id, status="denied")
+            return result_lifecycle
 
         evaluation = self.evaluate(tool_name, args, context, permissions)
         result = BrokerResult(
@@ -192,6 +256,7 @@ class ToolBroker:
             policy=evaluation.get("policy"),
             reason=evaluation["reason"],
             proposal_event_id=proposal.id,
+            data_classification=classification,
         )
 
         # Record each decision layer under the proposal.
@@ -222,6 +287,50 @@ class ToolBroker:
             status="ok" if evaluation["decision"] == ALLOW else evaluation["decision"],
         )
 
+        # --- V1.5 governance overlay (system-level policy, escalation-only) --
+        # The ToolPolicy owns deny-by-default for the tool layer; governance
+        # policies add system/model/data/autonomy restrictions on top. They
+        # can never RELAX a tool-layer decision, only tighten it.
+        if system is not None and evaluation.get("manifest") is not None:
+            from helios.governance import engine as governance_engine
+
+            governance = governance_engine.check_tool_action(
+                db, context.tenant_id,
+                system=system,
+                tool=tool_name,
+                capability=evaluation["manifest"].get("capability", "read"),
+                action_risk=(evaluation.get("risk") or {}).get("risk", "low"),
+                environment=context.environment,
+                autonomy_level=context.effective_autonomy_level(),
+                data_class=classification["effective"],
+            )
+            result.governance = governance.to_dict()
+            recorder.record(
+                "governance_evaluation",
+                tool_name,
+                governance.to_dict(),
+                parent_id=proposal.id,
+                risk=(evaluation.get("risk") or {}).get("risk"),
+                status="ok" if governance.decision == ALLOW else governance.decision,
+            )
+            if governance.decision == "deny" and evaluation["decision"] != DENY:
+                evaluation["decision"] = DENY
+                evaluation["reason"] = (
+                    f"governance policy denied: {governance.reason} "
+                    f"[{', '.join(governance.policy_versions)}]"
+                )
+                evaluation["stage"] = "governance"
+                result.reason = evaluation["reason"]
+            elif (governance.decision in ("require_approval", "require_human_review")
+                  and evaluation["decision"] == ALLOW):
+                evaluation["decision"] = REQUIRE_APPROVAL
+                evaluation["reason"] = (
+                    f"governance policy requires human oversight: {governance.reason} "
+                    f"[{', '.join(governance.policy_versions)}]"
+                )
+                evaluation["stage"] = "governance"
+                result.reason = evaluation["reason"]
+
         if evaluation["decision"] == DENY:
             recorder.record(
                 "outcome", tool_name,
@@ -236,17 +345,38 @@ class ToolBroker:
         approval_mode = "none"
 
         if evaluation["decision"] == REQUIRE_APPROVAL:
-            # 1. session-scoped standing approval for this exact tool?
-            if any(sa.get("tool") == tool_name for sa in session_approvals):
+            from helios.governance.oversight import (
+                approval_is_valid,
+                expire_stale,
+                session_approval_valid,
+            )
+
+            # keep approval state honest before matching (lazy expiration)
+            expire_stale(db, context.tenant_id)
+
+            # 1. session-scoped standing approval for this exact tool,
+            #    validated against expiry + environment/system/uses scope?
+            matched_session_entry = next(
+                (sa for sa in session_approvals
+                 if session_approval_valid(sa, tool_name, context)),
+                None,
+            )
+            if matched_session_entry is not None:
                 approval_mode = "session"
                 recorder.record(
                     "approval", tool_name,
-                    {"mode": "session", "detail": "approved for session by user"},
+                    {"mode": "session", "detail": "approved for session by user",
+                     "granted_by": matched_session_entry.get("granted_by"),
+                     "scope": {k: matched_session_entry.get(k) for k in
+                               ("environment", "system_id", "expires_at",
+                                "max_uses", "uses")
+                               if matched_session_entry.get(k) is not None}},
                     parent_id=proposal.id, status="approved",
                 )
             else:
-                # 2. an APPROVED request bound to this exact payload hash?
-                approved = (
+                # 2. an APPROVED, UNEXPIRED request bound to this exact
+                #    payload hash?
+                approved_candidates = (
                     db.query(ApprovalRequest)
                     .filter(
                         ApprovalRequest.tenant_id == context.tenant_id,
@@ -254,8 +384,10 @@ class ToolBroker:
                         ApprovalRequest.args_hash == args_hash,
                         ApprovalRequest.status == "approved",
                     )
-                    .first()
+                    .all()
                 )
+                approved = next((a for a in approved_candidates
+                                 if approval_is_valid(a)), None)
                 if approved is not None:
                     approval_id = approved.id
                     approval_mode = "existing"
@@ -267,11 +399,15 @@ class ToolBroker:
                     )
                 else:
                     # 3. create a pending, payload-bound approval request.
+                    governance_decision = (result.governance or {}).get("decision")
                     pending = ApprovalRequest(
                         tenant_id=context.tenant_id,
                         action=tool_name,
                         args_hash=args_hash,
                         risk=(evaluation.get("risk") or {}).get("risk", "high"),
+                        decision_kind=("review" if governance_decision
+                                       == "require_human_review" else None),
+                        system_id=context.system_id,
                         summary={
                             "tool": tool_name,
                             "description": manifest.description,
@@ -283,8 +419,11 @@ class ToolBroker:
                             "user_id": context.user_id,
                             "session_id": context.session_id,
                             "run_id": context.run_id,
+                            "system_id": context.system_id,
                             "risk": evaluation.get("risk"),
                             "policy": evaluation.get("policy"),
+                            "governance": result.governance,
+                            "data_classification": classification,
                             "args_editable": manifest.args_editable,
                             "proposal_event_id": proposal.id,
                         },
@@ -379,6 +518,15 @@ class ToolBroker:
             risk=(evaluation.get("risk") or {}).get("risk"),
         )
 
+        # --- V1.5 EVIDENCE plane: explicit data-flow evidence --------------
+        # Inbound: data that just entered the agent context (classified —
+        # classes and counts only, never raw sensitive content).
+        # Outbound: where data was written/sent, with the effective class.
+        # Every lineage edge (Phase 5) must cite events like these.
+        _record_data_flow(recorder, proposal.id, manifest, tool_name,
+                          evaluation.get("resource") or {}, clean,
+                          classification, effect_id)
+
         result.status = "executed"
         result.result = clean
         result.effect_id = effect_id
@@ -387,6 +535,75 @@ class ToolBroker:
         result.warnings = warnings
         result.reason = evaluation["reason"]
         return result
+
+
+def _source_kind(tool_name: str) -> str:
+    prefix = tool_name.split(".", 1)[0]
+    return {
+        "fs": "file", "git": "repo", "github": "repo",
+        "shell": "shell", "http": "external", "mcp": "external",
+    }.get(prefix, prefix)
+
+
+def _record_data_flow(recorder: TraceRecorder, proposal_id: str,
+                      manifest, tool_name: str, resource: dict,
+                      clean_result: dict, classification: dict,
+                      effect_id: str | None) -> None:
+    """
+    Record data-flow evidence for one executed tool call.
+
+    read/network  -> inbound event (`retrieval` when the tool reaches the
+                     network, `data_access` otherwise) with the classes
+                     detected in the result that entered the agent context.
+    write/destructive -> outbound `data_access` event naming the destination
+                     and the effective class of the data that flowed to it.
+    Payloads carry classes/counts and resource identifiers only — never raw
+    sensitive content (scrub_payload additionally scrubs on persist).
+    """
+    import json as _json
+
+    from helios.governance.data import classify_text
+
+    capability = manifest.capability
+    if capability in ("read", "network"):
+        try:
+            blob = _json.dumps(clean_result, default=str)[:65536]
+        except Exception:
+            blob = ""
+        found = classify_text(blob)
+        event_type = "retrieval" if (manifest.network or capability == "network") \
+            else "data_access"
+        recorder.record(
+            event_type, tool_name,
+            {
+                "direction": "inbound",
+                "source_kind": _source_kind(tool_name),
+                "source": resource,
+                "classes_detected": found["classes"],
+                "pii_counts": found["pii"],
+                "sensitive_markers": found["sensitive_markers"],
+                "effect_id": effect_id,
+            },
+            parent_id=proposal_id, status="ok",
+        )
+    elif capability in ("write", "destructive"):
+        destination = dict(resource)
+        if not destination:
+            destination = {"detail": "see tool_execution payload"}
+        recorder.record(
+            "data_access", tool_name,
+            {
+                "direction": "outbound",
+                "source_kind": _source_kind(tool_name),
+                "destination": destination,
+                "data_class": classification.get("effective", "PUBLIC"),
+                "classes": sorted(set(classification.get("declared") or [])
+                                  | set(classification.get("detected") or [])),
+                "pii_counts": classification.get("pii_counts", {}),
+                "effect_id": effect_id,
+            },
+            parent_id=proposal_id, status="ok",
+        )
 
 
 def sanitize_result(raw: dict, *, external: bool) -> tuple[dict, list[str]]:

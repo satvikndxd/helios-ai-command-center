@@ -7,16 +7,25 @@ from helios.db import init_db
 from helios.routes import (
     actions,
     agents,
+    audit,
     browser,
+    changes,
     completions,
     datasets,
+    decisions,
+    drift,
+    evaluations,
     evolution,
     health,
     ingest,
     knowledge,
     mcp,
+    models,
+    policies,
+    replay,
     review,
     simulations,
+    systems,
     traces,
     web,
     workflows,
@@ -40,6 +49,15 @@ app = FastAPI(
 )
 
 app.include_router(health.router)
+app.include_router(systems.router)
+app.include_router(models.router)
+app.include_router(policies.router)
+app.include_router(decisions.router)
+app.include_router(evaluations.router)
+app.include_router(changes.router)
+app.include_router(replay.router)
+app.include_router(drift.router)
+app.include_router(audit.router)
 app.include_router(agents.router)
 app.include_router(ingest.router)
 app.include_router(completions.router)

@@ -395,8 +395,9 @@ def test_trace_records_full_decision_chain(db, tenant_id):
               .filter(TraceEvent.run_id == "trace-run")
               .order_by(TraceEvent.seq).all())
     types = [e.event_type for e in events]
+    # V1.5: executed writes additionally record outbound data-flow evidence
     assert types == ["tool_proposal", "permission_evaluation", "risk_evaluation",
-                     "policy_evaluation", "tool_execution"]
+                     "policy_evaluation", "tool_execution", "data_access"]
     proposal = events[0]
     # children hang off the proposal
     assert all(e.parent_id == proposal.id for e in events[1:])
@@ -404,3 +405,7 @@ def test_trace_records_full_decision_chain(db, tenant_id):
     assert proposal.payload["context"]["agent_id"] == "agent-1"
     policy_event = events[3]
     assert policy_event.payload["rule_id"] == "allow_low_medium"
+    # the data-flow event carries direction + destination (no raw content)
+    data_event = events[5]
+    assert data_event.payload["direction"] == "outbound"
+    assert "filesystem.path" in data_event.payload["destination"]

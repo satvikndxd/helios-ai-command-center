@@ -83,14 +83,22 @@ async def propose(
 @router.get("/v1/approvals")
 async def list_approvals(
     status: str | None = None,
+    system_id: str | None = None,
     api_key: ApiKey = Depends(get_api_key),
     db: Session = Depends(get_db),
 ):
+    # V1.5: lazy expiration sweep keeps the queue honest, and oversight
+    # metadata (system, delegation, expiry, comments) is visible here.
+    from helios.governance.oversight import expire_stale
+
+    expire_stale(db, api_key.tenant_id)
     query = db.query(ApprovalRequest).filter(
         ApprovalRequest.tenant_id == api_key.tenant_id
     )
     if status:
         query = query.filter(ApprovalRequest.status == status)
+    if system_id:
+        query = query.filter(ApprovalRequest.system_id == system_id)
     return {
         "approvals": [
             {
@@ -100,6 +108,12 @@ async def list_approvals(
                 "summary": a.summary,
                 "status": a.status,
                 "args_hash": a.args_hash,
+                "system_id": a.system_id,
+                "decision_kind": a.decision_kind,
+                "delegated_to": a.delegated_to,
+                "expires_at": a.expires_at.isoformat() if a.expires_at else None,
+                "comments": a.comments or [],
+                "decided_by": a.decided_by,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in query.order_by(ApprovalRequest.created_at.desc()).all()

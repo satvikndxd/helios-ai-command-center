@@ -1,7 +1,7 @@
 {
   "name": "helios-command-center",
-  "version": "1.0.0",
-  "description": "HELIOS — the control plane for AI agents: permissions, contextual risk, policy, human approvals, and audit for every agent action",
+  "version": "1.5.0",
+  "description": "HELIOS — the AI governance control plane: AI system registry, model & data governance, versioned policy, evidence-backed decision records, human oversight, evaluation, replay, change management, drift detection, and audit",
   "bin": {
     "helios": "bin/helios.js"
   },
@@ -26,6 +26,9 @@
     "ai",
     "agent",
     "governance",
+    "ai-governance",
+    "model-governance",
+    "audit",
     "llm",
     "terminal",
     "workflows"

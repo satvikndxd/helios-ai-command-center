@@ -28,6 +28,11 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
+    # V1.5: additive nullable columns for pre-existing databases (idempotent).
+    from helios.migrate import ensure_columns
+
+    ensure_columns()
+
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,

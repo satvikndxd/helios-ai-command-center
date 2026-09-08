@@ -97,7 +97,11 @@ def assess_risk(
         score += 0.15
         reasons.append("autonomous agent (no human in the loop)")
     if context.data_classes and cap in ("write", "network"):
-        sensitive = {"pii", "phi", "financial", "secret"} & set(context.data_classes)
+        # Canonical V1.5 classes are uppercase (PII, CONFIDENTIAL, ...); V1
+        # callers used lowercase tags. Compare case-insensitively.
+        sensitive = {"pii", "phi", "financial", "secret"} & {
+            str(c).lower() for c in context.data_classes
+        }
         if sensitive:
             score += 0.20
             reasons.append(f"sensitive data classes in scope: {sorted(sensitive)}")

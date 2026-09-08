@@ -56,12 +56,15 @@ class TraceRecorder:
         tenant_id: str,
         run_id: str | None = None,
         session_id: str | None = None,
+        system_id: str | None = None,
         start_seq: int = 0,
     ):
         self.db = db
         self.tenant_id = tenant_id
         self.run_id = run_id
         self.session_id = session_id
+        # V1.5 EVIDENCE plane: which registered AI system this evidence belongs to.
+        self.system_id = system_id
         self._seq = start_seq
 
     def record(
@@ -81,6 +84,7 @@ class TraceRecorder:
             tenant_id=self.tenant_id,
             run_id=self.run_id,
             session_id=self.session_id,
+            system_id=self.system_id,
             parent_id=parent_id,
             seq=self._seq,
             event_type=event_type,
@@ -105,6 +109,7 @@ def event_to_dict(event: TraceEvent) -> dict:
         "id": event.id,
         "run_id": event.run_id,
         "session_id": event.session_id,
+        "system_id": event.system_id,
         "parent_id": event.parent_id,
         "seq": event.seq,
         "event_type": event.event_type,

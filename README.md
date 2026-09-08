@@ -5,382 +5,423 @@
 <br/><br/>
 
 # HELIOS
-## The Control Plane for AI Agents
+## The AI Governance Control Plane
 
-**Give agents access to your tools without giving them unrestricted access to your company.**
+**HELIOS defines what AI systems are allowed to do, records what they actually
+did, evaluates whether they behaved correctly, and provides continuous
+assurance that they remain within policy.**
 
 <br/>
 
 <img alt="Python" src="https://img.shields.io/badge/python-3.11%2B-00E676?style=flat-square&labelColor=0A1A0F">
-<img alt="Tests" src="https://img.shields.io/badge/tests-138_passing_in_~5s-34D399?style=flat-square&labelColor=0A1A0F">
+<img alt="Tests" src="https://img.shields.io/badge/tests-276_passing_in_~13s-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="Runtime deps" src="https://img.shields.io/badge/runtime_deps-8-34D399?style=flat-square&labelColor=0A1A0F">
 <img alt="License" src="https://img.shields.io/badge/license-MIT-00E676?style=flat-square&labelColor=0A1A0F">
-<img alt="GitHub Repo" src="https://img.shields.io/github/repo-size/satvikndxd/helios-ai-command-center?color=00E676&label=repo%20size&style=flat-square&labelColor=0A1A0F">
 
 <br/><br/>
 
-[How It Works](#how-it-works) • [Quick Start](#quick-start) • [Core Concepts](#core-concepts) • [Advanced Features](#advanced-features) • [API Reference](#api-reference) • [Security](#security-model) • [Development](#development)
+[The Four Questions](#the-four-questions) • [Quick Start](#quick-start) •
+[The Flagship Demo](#the-flagship-demo) • [Core Concepts](#core-concepts) •
+[API](#api-surface) • [Architecture](#architecture) •
+[Security](#security-as-a-governance-control) • [Development](#development)
 
 </div>
 
 ---
 
+```
+            AI SYSTEM   (agent · application · workflow)
+                │
+                ▼
+         ┌──────────────┐
+         │    HELIOS    │
+         ├──────────────┤
+         │ IDENTITY     │   who / what is this AI system?
+         │ POLICY       │   what is it allowed to do?
+         │ EVIDENCE     │   what did it actually do?
+         │ ASSURANCE    │   does it remain within policy?
+         └──────┬───────┘
+                │
+                ▼
+       MODELS / DATA / TOOLS
+```
+
+HELIOS is not primarily an agent firewall, an AI gateway, or an observability
+dashboard. Security, agent execution, observability, evaluation and approvals
+are **components of one governance system** — every action an AI system takes
+flows through a decision that is *explainable, evidenced, replayable, and
+auditable*.
+
+## The Four Questions
+
+Everything in HELIOS exists to make four questions easy to answer — with
+evidence, never vibes:
+
+| Question | Plane | HELIOS answers it with |
+|---|---|---|
+| **What AI systems do we have?** | IDENTITY | The AI System Registry: owner, purpose, environment, autonomy level (L0–L5), risk class, models, tools, data classes, policies, oversight requirements — versioned on every change |
+| **What are they allowed to do?** | POLICY | Versioned policy sets (tool, model, data, autonomy, environment), a governed Model Registry (approval + data ceilings + environment bounds), permission grants with resource constraints, contextual risk, and a built-in autonomy ceiling |
+| **What did they actually do?** | EVIDENCE | A hierarchical trace per run (model calls, retrievals, data accesses, proposals, policy decisions, approvals, executions, human reviews, outcomes), normalized **AI Decision Records**, event-backed **data lineage**, and a generated **WHY** explanation for every decision |
+| **Can we prove they stay within policy?** | ASSURANCE | Evidence-based evaluations, a transparent **governance score**, deterministic **replay** of history against candidate policies/models, first-class **AI Change Management** (no invisible production changes), and **drift detection** against stored baselines |
+
 ## Quick Start
 
-### 1. Run HELIOS with mock providers (no API keys)
+Zero configuration, zero API keys, no network:
 
 ```bash
-helios
+git clone https://github.com/satvikndxd/helios-ai-command-center
+cd helios-ai-command-center
+pip install -r requirements.txt
+
+# the flagship governance demo (SQLite + scripted models, fully deterministic)
+PYTHONPATH=src python -m helios.governance.demo      # or: make governance-demo
+
+# the governed agent terminal
+PYTHONPATH=src python -m helios.tui                  # or: make tui
 ```
 
-This starts the control plane and opens the governed agent interface. Try the demo workflow:
-
-```
-you › fix the flaky timeout test and merge the fix
-
-  [THINKING]
-    → github.get_repo {"repo": "acme/api"}
-      risk [LOW] read operation
-      policy [ALLOW] low/medium-risk action within granted permissions
-      [OK]
-```
-
-### 2. Connect real providers
-
-When ready to work with real tools and models:
+Connect real models and tools when ready:
 
 ```bash
-# Set your model provider (Groq, OpenAI, Anthropic, Gemini, or OpenRouter)
-export HELIOS_GROQ_API_KEY=...            # or HELIOS_OPENAI_API_KEY, etc.
-export HELIOS_AGENT_PROVIDER=groq
-
-# Configure GitHub access (optional — for github.* tools)
-export HELIOS_GITHUB_TOKEN=ghp_...        # GitHub personal access token
-export HELIOS_GITHUB_REPO=you/yourrepo    # The ONE repo this agent may touch
-
-helios
+export HELIOS_GROQ_API_KEY=...          # or OPENAI / ANTHROPIC / GEMINI / OPENROUTER
+export HELIOS_GITHUB_TOKEN=ghp_...      # enables real github.* tools
+export HELIOS_GITHUB_REPO=you/yourrepo  # the ONE repo the agent may touch
 ```
 
-### 3. Explore the TUI commands
+## The Flagship Demo
 
-| Command | Description |
-|---------|-------------|
-| `/sessions` | List all agent sessions |
-| `/session <id>` | View a specific session |
-| `/trace <run>` | Inspect a run's decision trace |
-| `/replay <run>` | Re-evaluate a run against a different policy |
-| `/resume` | Resume a paused session |
-| `/cancel` | Cancel a running agent |
-
----
-
-## How It Works
-
-AI agents are useful exactly when they can touch real things — your repos, your
-shell, your filesystem, your APIs. That is also exactly when they are dangerous.
-HELIOS sits between the agent and the world:
+One canonical story — `release-agent` — exercises the whole control plane
+(the demo above runs it end-to-end; CI proves it headless in
+`tests/test_flagship_demo.py`):
 
 ```
-                      AGENT
-                        │  proposes a tool call
-                        ▼
-       ┌────────────── HELIOS ──────────────┐
-       │  identity / context                │   who is acting, where, for whom
-       │  permission evaluation             │   scoped grants + resource constraints
-       │  action risk evaluation            │   contextual: same tool ≠ same risk
-       │  policy decision                   │   ALLOW · DENY · REQUIRE_APPROVAL
-       │  human approval (when required)    │   bound to the exact payload hash
-       └────────────────┬───────────────────┘
-                        ▼
-                      TOOLS                     filesystem · shell · git · GitHub · HTTP · MCP
-                        │
-                        ▼
-              immutable decision trace  →  replay / evaluation
+1  REGISTER     AI system "release-agent" — owner release-engineering,
+                environment production, autonomy L3, risk HIGH,
+                model-x v17, GitHub tools, data class INTERNAL
+2  MODEL        model-x v17 registered → APPROVED by security-review
+                (data ceiling: PUBLIC/INTERNAL)
+3  POLICY       "release-agent-governance" activated:
+                merges toward protected branches → REQUIRE_HUMAN_REVIEW
+4  DEPLOY GATE  L3 in production → activation REQUIRES APPROVAL
+                (built-in autonomy ceiling) → CTO approves → ACTIVE
+5  RUN          agent investigates repo → reads code → modifies code →
+                runs tests [HIGH risk → human approves] → branch → commit →
+                opens PR #142 → attempts production merge
+6  CRITICAL     merge to protected 'main' scored CRITICAL;
+                policy + governance demand a human; approval binds to the
+                EXACT payload hash (mutation invalidates it)
+7  REVIEW       human inspects action · risk reasons · policy rule ·
+                governance rule · data classification · args → APPROVES
+8  EXECUTE      HELIOS executes precisely the approved payload and records
+                an AI Decision Record + full hierarchical trace
+9  WHY          every check that led to the decision, generated from
+                recorded evidence:
+                  ✓ ai_system: attributed to registered 'release-agent'
+                  ✓ permissions: github.merge scoped to acme/release-service
+                  ✓ tool_policy: approval_for_high_risk — OBTAINED
+                  ✓ governance: production-merge-review — oversight obtained
+                  ✓ data_classification: INTERNAL within model ceiling
+                  ✓ human_oversight: reviewer release-manager
+10 REPLAY       same run vs CANDIDATE policy v2 →
+                "+1 newly gated (create_pr)" — tested BEFORE deployment
+11 ASSURE       evaluation 1.0 passed · governance score 100/100 with
+                component breakdown · drift baseline stored, check clean ·
+                audit report exported (JSON)
 ```
 
-**No model-generated action executes directly.** Every tool invocation flows
-through the Tool Broker — the single execution boundary — and leaves a
-hierarchical decision trace that can answer, later: *what happened, who
-initiated it, why was it allowed, who approved it, what actually executed,
-what did it cost.*
-
----
-
-## Example: Risk-Based Approval Flow
-
-```console
-$ helios                       # starts the control plane, opens the governed agent
-
-you › fix the flaky timeout test and merge the fix
-
-  [THINKING]
-    → github.get_repo {"repo": "acme/api"}
-      risk [LOW] read operation
-      policy [ALLOW] low/medium-risk action within granted permissions
-      [OK]
-    → fs.write {"path": "tests/test_timeout.py", ...}
-    → shell.run {"command": "pytest tests/test_timeout.py"}
-    → git.branch {"name": "agent/fix-timeout"}   → git.commit → github.create_pr
-  [AWAITING APPROVAL] github.merge_pr requires human approval
-
-┌─[ APPROVAL REQUIRED ]───────────────────────────────────────────┐
-│  agent        helios-agent                                      │
-│  tool         github.merge_pr                                   │
-│  github.repo  acme/api                                          │
-│  github.base  main                                              │
-│  environment  production                                        │
-│  risk         [CRITICAL] score 0.95                             │
-│               – write operation                                 │
-│               – production environment                          │
-│               – protected branch 'main'                         │
-│  policy       helios-default-v1 · rule approval_for_high_risk   │
-│  why          high/critical-risk actions require human approval │
-│  trace        run c24b6cd8…                                     │
-└─────────────────────────────────────────────────────────────────┘
-  [a]pprove  [d]eny  [s]ession-approve  [i]nspect  [l]ater
-```
-
-A `github.read_file` sails through as **LOW** risk. A `github.merge_pr` into a
-protected branch in production is **CRITICAL** and stops for a human. Same
-agent, same tools — the *context* decides. Approve it and HELIOS executes
-exactly the payload you approved (approvals are bound to a SHA-256 of the
-action + arguments; if the agent mutates the payload, the approval is void).
-
----
+> *"HELIOS knows WHAT this AI system is, WHAT it is allowed to do, WHAT it
+> actually did, WHY it was allowed to do it, WHO supervised it, and WHETHER it
+> remains within policy."*
 
 ## Core Concepts
 
-HELIOS is built on five foundational primitives that work together to provide safe, governed agent execution:
+### AI System Registry (IDENTITY)
 
-### 1. Agent Runtime
-
-Persistent sessions that survive terminal closure; resume or fork them.
-Every run is an explicit state machine — the TUI never shows a blocked agent
-as a generic spinner:
-
-```
-thinking · planning · tool_pending · running · awaiting_approval · blocked
-completed · failed · cancelled
-```
-
-**TUI Commands:** `/sessions` · `/session <id>` · `/trace <run>` · `/replay <run>` · `/resume` · `/cancel`
-
-### 2. Tool Broker — The Execution Boundary
-
-Every tool publishes a declarative manifest: name, version, owner, capability,
-input/output schema, base risk class, permission scopes, resource fields,
-network requirements, approval level, idempotency, provenance. No manifest, no
-execution. The broker validates arguments, evaluates permissions → risk →
-policy, gates on approval, journals effects under idempotency keys (safe
-retry, no duplicate merges), and sanitizes every result.
-
-**P0 Tools:** `fs.*` (workspace-jailed) · `shell.run` (no shell expansion, secret-stripped env, hard timeout) · `git.*` · `github.*` (real REST) · `http.get` (domain allowlist) · `mcp.call` (trust-gated MCP)
-
-### 3. Permissions — Scopes with Resource Constraints
-
-Not a boolean allow/deny matrix:
+The system — not the session, not the model — is the unit of governance.
 
 ```json
-{"scope": "github.merge",   "constraints": [{"field": "github.repo",   "op": "eq", "value": "acme/api"}]}
-{"scope": "git.write",      "constraints": [{"field": "git.branch",    "op": "ne", "value": "main"}]}
-{"scope": "filesystem.write","constraints": [{"field": "filesystem.path","op": "prefix", "value": "/workspace"}]}
+{
+  "system_id": "claims-agent",
+  "owner": "claims-platform",
+  "purpose": "claims triage",
+  "environment": "production",
+  "autonomy_level": 3,
+  "risk_class": "HIGH"
+}
 ```
 
-Grants understand organization, project, environment, agent identity, user
-identity, tool, resource, and data class. Deny by default; path traversal is
-normalized before the prefix check and re-checked in the executor.
+Every mutation snapshots an immutable version (who changed what, when, why).
+Sessions bind to systems; every trace event, decision record, approval, and
+evaluation is attributed to one.
 
-### 4. Contextual Risk + Versioned Policy
+### Autonomy Levels
 
-Risk is computed from tool × arguments × target × environment × actor, not
-from the tool name:
+```
+L0 informational · L1 recommendations · L2 supervised actions
+L3 conditional autonomy · L4 high autonomy · L5 unrestricted
+```
+
+The built-in ceiling for production deployments: **L0–L2 allow · L3 requires
+an approved deployment · L4/L5 blocked** — enforced at registration,
+activation, and on posture changes while active (a change that would breach
+the ceiling is refused with the matching rule). Legacy
+`supervised`/`autonomous` sessions map deterministically to L2/L4.
+
+### Model Governance
+
+Models are governed independently of agents: provider · version ·
+capabilities · region · pricing metadata · risk class · **approval status** ·
+**allowed data classes** (severity ceiling) · **allowed environments**.
+Unknown model on a governed system → deny. Every model call passes a recorded
+preflight: *is this model approved, may it receive this data class, in this
+environment?* — classified from declared classes **and** content detection
+(counts only; raw sensitive content is never persisted).
+
+### Data Governance & Lineage
+
+```
+PUBLIC · INTERNAL · CONFIDENTIAL · SENSITIVE · PII
+```
+
+```
+DATA SOURCE → RETRIEVAL → MODEL → TOOL → OUTPUT → DESTINATION
+```
+
+Every read/network tool result and every write destination is recorded as a
+classified data-flow event. Lineage graphs are derived **exclusively** from
+recorded events — every edge cites the event ids that prove it. Blocked flows
+appear as violations with the recorded denial reason. There is no decorative
+lineage: if it wasn't recorded, it isn't drawn.
+
+### Policy (POLICY)
+
+Two deterministic layers, both versioned, serializable, replayable, and
+explained rule-by-rule:
+
+* **Tool policies** (broker): ordered rules over tool · capability · risk ·
+  environment · autonomy → `ALLOW / DENY / REQUIRE_APPROVAL`; unmatched →
+  **deny by default**.
+* **Governance policies**: ordered rules over system · model · data ·
+  autonomy · environment · lifecycle → the above plus
+  `REQUIRE_HUMAN_REVIEW / BLOCK_DEPLOYMENT`; persisted as candidate →
+  active → archived sets, testable via dry-run and replay **before**
+  activation.
+
+```yaml
+policy: production-autonomy
+when:   {subject: [deployment], environment: [production], autonomy_level: {gte: 3}}
+effect: require_approval     # L4/L5: block_deployment
+```
+
+### Evidence & AI Decision Records (EVIDENCE)
+
+Every run produces a hierarchical trace —
+`model_call · retrieval · data_access · tool_proposal → (permission · risk ·
+policy · governance) · approval · tool_execution · human_review · outcome` —
+and normalized **Decision Records** projected from it (never hand-written):
 
 ```json
-{"risk": "critical", "score": 0.95, "reasons": [
-  "write operation", "production environment", "protected branch 'main'"]}
+{
+  "system": "release-agent", "action": "github.merge_pr",
+  "decision": "EXECUTED", "model": "scripted/model-x", "model_version": "17",
+  "risk": "critical", "data_class": "INTERNAL",
+  "policy": {"tool_policy": {"rule_id": "approval_for_high_risk"},
+             "governance": {"matched_rules": ["production-merge-review"]}},
+  "oversight": {"required": true, "actual": "payload_bound",
+                "reviewer": "release-manager"},
+  "evidence": {"trace_event_ids": ["..."], "approval_id": "..."}
+}
 ```
 
-Policies are ordered rule sets — versioned, serializable, deterministic,
-first-match-wins, default-deny. Every decision carries the rule that fired and
-a full explanation, and is written to the trace:
+`GET /v1/decisions/{id}/explanation` answers **WHY** — assembled from the
+recorded state, never canned UI text. Secrets are scrubbed on every write
+path; approvals bind to `sha256(tool + canonical args)` so payload tampering
+invalidates them.
+
+### Human Oversight
+
+Approvals, denials, reviews, escalations, delegated decisions, comments,
+expiration, and scope binding (environment / system / max-uses) — all part of
+the governance record. HELIOS answers: *where was a human involved? where
+SHOULD one have been? did the AI bypass required oversight?* — including gaps
+between **declared** oversight requirements and what active policies actually
+enforce.
+
+### Assurance: Score · Replay · Changes · Drift
+
+* **Governance score** — 10 weighted components (identity, model approval,
+  data policy, oversight, compliance, evaluation, auditability, security,
+  drift, documentation), each a list of checks with reasons and evidence
+  refs. Components without evidence report `insufficient_evidence` — never a
+  free 100.
+* **Replay** — re-evaluate recorded runs against candidate tool policies,
+  governance sets, system posture, or model registry state. Nothing executes;
+  every diff cites evidence. Policy changes are testable **before**
+  deployment.
+* **AI Change Management** — model · prompt · policy · tool · dataset ·
+  config changes follow `candidate → replay → evaluation → risk comparison →
+  human review → approved → deployed`, with previous/candidate snapshots, a
+  digest-bound review approval, and one-call rollback that is itself a
+  governed change. No production governance change happens invisibly.
+* **Drift** — deterministic baselines (approval rate, denial rate, risk/tool/
+  model mixes, bypasses, eval pass rate, posture, active policies) compared
+  under documented thresholds with minimum-sample safeguards. Example:
+  *baseline 100% of writes approved → observed 61% → `governance_drift`
+  (critical)*.
+
+### The TUI: a governance control center
 
 ```
-DENY · rule deny_autonomous_production_writes
-reason: production write forbidden for autonomous agents
+/systems  /system <id>  /models  /policies  /traces  /evaluations
+/approvals  /changes  /drift  /audit <system>  /replay system <id> [set-id]
 ```
 
-### 5. Approval + Audit
-
-The approval binds to the exact payload hash — *approve action A, mutate
-payload, execute action B* is structurally impossible. Approvers can deny,
-approve once, approve for the session, or (for tools that allow it) edit the
-arguments — which re-binds the approval to the edited payload. Every run is
-one hierarchical trace:
+plus the governed agent (`/sessions`, `/trace`, `/replay`, `/approve`,
+`/deny`). Every field on screen is backed by an API response — the overview
+panel:
 
 ```
-agent_run
- ├── model_call
- ├── tool_proposal
- │    ├── permission_evaluation
- │    ├── risk_evaluation
- │    ├── policy_evaluation
- │    ├── approval
- │    └── tool_execution
- ├── state_change
- └── outcome
+╭─ HELIOS · AI GOVERNANCE CONTROL PLANE ─────────────────────╮
+  SYSTEM     release-agent  (Release Agent)
+  OWNER      release-engineering · acme
+  RISK       HIGH
+  AUTONOMY   L3
+  LIFECYCLE  active
+  MODEL      scripted/model-x v17 ✓ APPROVED
+  DATA       INTERNAL
+  POLICIES   2 active
+  EVALUATION 100.0% (passed)
+  GOVERNANCE 100.0 / 100  ok
+  DRIFT      ✓ none open
+  VIOLATIONS 0
+  APPROVALS  0 active · 3 total
+╰────────────────────────────────────────────────────────────╯
 ```
 
-Secrets are scrubbed before anything is persisted. Tool output is treated as
-untrusted input: prompt-injection patterns are flagged (and withheld entirely
-for network tools) — a tool result can never override policy.
+## API Surface
 
----
+Multi-tenant (`X-Helios-API-Key`), additive over the V1 gateway API.
 
-## Advanced Features
+| Boundary | Endpoints |
+|---|---|
+| `/v1/systems` | register · list/search · inspect · patch · lifecycle (gated) · archive · versions · lineage · oversight · drift · audit |
+| `/v1/models` | register · list · lookup · **check** (compatibility WHY) · patch · approve · deny · deprecate |
+| `/v1/policies` | tool-policy versions + governance sets: create · list · activate · archive · **dry-run** |
+| `/v1/agent` | sessions · runs · events · lineage · cancel/resume/retry · replay · approvals (decide/delegate/escalate/comment) · tools invoke |
+| `/v1/decisions` | query records · inspect · **explanation** · rebuild |
+| `/v1/evaluations` | run governance/benchmark evaluations · list · inspect |
+| `/v1/changes` | create · replay · evaluate · risk-comparison · submit-review · approve · reject · deploy · rollback |
+| `/v1/replay` | system-level replay against candidates |
+| `/v1/drift` | open signals · acknowledge |
+| `/v1/audit` | per-system governance evidence report (JSON export) |
+| V1 (kept) | `/v1/ai/complete` · `/v1/traces` · `/v1/ingest` (OTLP) · `/v1/knowledge` · `/v1/mcp` · `/v1/actions` · `/v1/workflows` · … |
 
-### Replay — Govern the Past Against Tomorrow's Policy
+## Architecture
 
-Any recorded run can be re-evaluated against the same policy, a newer one, or
-a candidate document — nothing executes, everything is compared:
-
-```console
-you › /replay c079de31 candidate-strict-v2
-
-┌─[ REPLAY ]──────────────────────────────────────┐
-│  policy      candidate-strict-v2                │
-│  proposals   7                                  │
-│  original    {"executed": 6, "approval": 1}     │
-│  candidate   {"executed": 4, "denied": 1,       │
-│               "approval_required": 2}           │
-└─────────────────────────────────────────────────┘
-  • fs.write  executed → approval_required  (candidate: all writes need approval)
+```
+src/helios/
+├── governance/     # the control plane
+│   ├── systems.py           IDENTITY   AI System Registry
+│   ├── models_registry.py   IDENTITY   Model Registry + compatibility checks
+│   ├── autonomy.py          POLICY     L0–L5 vocabulary (+ legacy mapping)
+│   ├── data.py              POLICY     data classes + classifier (sentinel-backed)
+│   ├── policy.py            POLICY     governance policy sets + built-in ceiling
+│   ├── engine.py            POLICY     deployment / model-call / tool-action gates
+│   ├── lineage.py           EVIDENCE   event-derived data lineage
+│   ├── decisions.py         EVIDENCE   AI Decision Records + WHY explanations
+│   ├── oversight.py         EVIDENCE   expiry · scope · delegation · compliance
+│   ├── evaluators.py        ASSURANCE  deterministic governance metrics
+│   ├── judge.py             ASSURANCE  opt-in LLM judge (never the only signal)
+│   ├── score.py             ASSURANCE  transparent composite score
+│   ├── replay.py            ASSURANCE  system-level candidate replay
+│   ├── changes.py           ASSURANCE  change lifecycle + deploy/rollback
+│   ├── drift.py             ASSURANCE  baselines + deterministic detectors
+│   ├── audit.py             ASSURANCE  governance evidence reports
+│   └── demo.py              the flagship end-to-end scenario
+├── broker/         # ToolBroker: the single execution boundary (kept from V1)
+│                   # manifest → args → identity/permissions → data classification
+│                   # → contextual risk → policy → governance overlay → oversight
+│                   # → idempotent execution → sanitized result → evidence
+├── agent/          # governed runtime: sessions, state machine, replay
+├── tools/          # filesystem · shell · git · GitHub · HTTP · MCP
+├── routes/         # FastAPI boundaries above
+├── tui/            # governance control center + agent terminal
+└── models.py       # all persistence (SQLAlchemy; SQLite/Postgres)
 ```
 
-Test a policy change against last month's real agent traffic before deploying it.
+Invariants (non-negotiable, enforced by tests):
 
-### External Agents — Observe What You Didn't Build
+1. No tool executes outside `ToolBroker.invoke`; no model call happens outside
+   a recorded governance preflight.
+2. Approvals bind to the exact payload hash; mutation invalidates them.
+3. Every decision is deterministic, serialized into evidence, and explained
+   from actual policy state.
+4. Every lineage edge, score point, and drift signal cites stored evidence —
+   missing evidence is reported as missing.
+5. Secrets never persist; sensitive content is classified by counts, not copies.
+6. Unknown tools, unknown models (on governed systems), and
+   blocked/suspended/archived systems are deny-by-default.
+7. No production governance change happens invisibly.
+8. HELIOS reports **governance evidence** — policy status, audit records,
+   control status. It never claims legal or regulatory compliance.
 
-HELIOS also ingests OpenTelemetry-shaped traces from agents that were *not*
-built on HELIOS:
+## Security as a Governance Control
 
-```bash
-curl -X POST localhost:8000/v1/ingest/otel -H "X-Helios-API-Key: $KEY" \
-  -d '{"resourceSpans": [...]}'    # spans land in the same trace store
+PII detection & redaction, secret scrubbing, prompt-injection defense
+(quarantine + withholding for external content), tenant isolation on every
+route, tool-result sanitization, filesystem jailing, shell restrictions,
+resource-constrained grants, and network allowlists are all enforced **inside**
+the planes above — and themselves evidenced: injection detections, redaction
+counts, and denials appear in traces, decision records, evaluations, and the
+security score component. They are controls of the governance system, not the
+product itself.
+
+## The Governed Agent Runtime (kept from V1)
+
+The agent runtime remains a first-class, governed execution surface:
+persistent sessions, an explicit run state machine (`thinking → tool_pending →
+running → awaiting_approval → blocked → completed/failed/cancelled`),
+cancellation, resume-after-approval, retry, forking, real GitHub/git/shell/
+filesystem/HTTP/MCP tools, OTLP trace ingestion for agents HELIOS does not run,
+and deterministic replay. The narrative is now:
+
 ```
-
----
-
-## API Reference
-
-Everything the TUI does goes through this API — build your own surface on it.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/v1/agent/sessions` | Create a new agent session |
-| `GET` | `/v1/agent/sessions/{id}` | Get session details |
-| `POST` | `/v1/agent/sessions/{id}/messages` | Send a message to a session |
-| `POST` | `/v1/agent/sessions/{id}/fork` | Fork an existing session |
-| `GET` | `/v1/agent/runs/{id}/events` | Get run events |
-| `POST` | `/v1/agent/runs/{id}/cancel` | Cancel a run |
-| `POST` | `/v1/agent/runs/{id}/resume` | Resume a run |
-| `POST` | `/v1/agent/runs/{id}/retry` | Retry a failed run |
-| `POST` | `/v1/agent/runs/{id}/replay` | Replay a run with different policy |
-| `POST` | `/v1/agent/approvals/{id}/decide` | Submit an approval decision |
-| `GET` | `/v1/approvals?status=pending` | List pending approvals |
-| `GET` | `/v1/tools` | List available tools |
-| `POST` | `/v1/tools/invoke` | Invoke a tool directly |
-| `GET` | `/v1/policies` | List policies |
-| `POST` | `/v1/ingest/otel` | Ingest OpenTelemetry traces |
-
----
-
-## Security Model
-
-| Boundary | Description |
-|----------|-------------|
-| **Single execution boundary** | No code path executes a tool outside the broker; unknown tools are denied at the manifest gate |
-| **Deny by default** | No grant, no rule, no execution |
-| **Payload-bound approvals** | SHA-256 over `{action, args}`; tampering invalidates |
-| **Idempotency journal** | Retries replay the recorded effect instead of re-executing |
-| **Workspace jail** | Filesystem/shell/git operate under one root; `../` and symlink escapes blocked at two layers |
-| **Secret hygiene** | Subprocess env stripped of `*KEY*/*TOKEN*/*SECRET*`; secrets scrubbed from tool output *and* from every trace payload |
-| **Untrusted tool output** | Injection patterns flagged; external content quarantined; instructions in tool results are data, never commands |
-| **Tenant isolation** | Every query is tenant-scoped; sessions, runs, traces, approvals never cross tenants |
-
-Each of these boundaries has tests (`tests/test_tool_broker.py`,
-`tests/test_agent_runtime.py`), including a full end-to-end flagship test:
-read → edit → test → branch → PR → merge request → CRITICAL → approval →
-execution → complete trace.
-
----
-
-## Additional Capabilities
-
-### Model & Gateway Abstraction
-
-Bring any model: OpenAI-compatible endpoints (Groq, OpenRouter, Together,
-local Ollama/vLLM/LM Studio, …), Anthropic, Gemini, or custom gateway
-profiles with dynamic model discovery (`/refresh`) and router fallback
-chains. Credentials are referenced by env-var name and never stored. The
-abstraction is the point — provider count is not.
-
-### Supporting Features
-
-Kept deliberately off the critical path:
-
-- **Governed completions** with PII/injection sentinel + RAG grounding
-- **Evaluation worker** (groundedness, refusal, latency) with human review queue
-- **Governed web research adapters**
-- **MCP server registry** with trust gating and budgets
-- **Encrypted browser sessions**
-- **Domain workflow packs** (Engineering/Software/Finance demos)
-- **Human-gated self-improvement proposal loop**
-
-See [docs/](docs/) for detailed architecture documentation.
-
----
+AI SYSTEM → HELIOS GOVERNANCE → AGENT EXECUTION
+```
 
 ## Development
 
-### Setup
-
 ```bash
-git clone https://github.com/satvikndxd/helios-ai-command-center && cd helios-ai-command-center
-python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
+PYTHONPATH=src python -m pytest -q      # 276 tests, ~13s, zero external deps
+make governance-demo                    # the flagship story, end to end
+make tui                                # governance control center + agent
 ```
 
-### Running Tests
+* Docs: [`docs/GOVERNANCE_ARCHITECTURE.md`](docs/GOVERNANCE_ARCHITECTURE.md)
+  (plane-by-plane module map), [`docs/GOVERNANCE_ROADMAP.md`](docs/GOVERNANCE_ROADMAP.md)
+  (delivery plan + migrations + compatibility risks),
+  [`docs/GOVERNANCE_GUIDE.md`](docs/GOVERNANCE_GUIDE.md) (operator guide).
+* Database: SQLite by default; Postgres (+pgvector) via `HELIOS_DATABASE_URL`.
+  Schema is additive; `python -m helios.migrate` applies nullable-column
+  migrations idempotently.
 
-```bash
-PYTHONPATH=src .venv/bin/pytest tests -q        # 138 tests, ~5s, no network, no Postgres
-```
+## Also in the box (V1 capabilities, de-emphasized)
 
-### Starting the Server
-
-```bash
-PYTHONPATH=src .venv/bin/uvicorn helios.main:app  # SQLite by default
-```
-
-### Documentation
-
-- [V1 Architecture Plan](docs/V1_PLAN.md) — Implementation roadmap and engineering decisions
-- [Web Access Architecture](docs/WEB_ACCESS_ARCHITECTURE.md) — Detailed web access patterns
-- [Workflows](docs/WORKFLOWS.md) — Domain workflow documentation
-- [Technical Checklist](docs/YC27_TECHNICAL_CHECKLIST.md) — YC27 technical requirements
+Multi-provider gateway with fallback chains (Groq · OpenRouter · Gemini ·
+OpenAI · Anthropic · any OpenAI-compatible endpoint), RAG with citation
+provenance, the completions policy/evaluation worker loop, MCP server
+governance (trust gating, allowlists, budgets), a web-research broker with
+source audit, domain workflow packs, and self-evolution proposals. They keep
+working; they are no longer the story.
 
 ---
 
 <div align="center">
 
-*An AI agent wants to do something dangerous. HELIOS understands what it wants
-to do, who is doing it, decides whether it is allowed, asks a human when
-necessary, executes safely — and leaves an exact audit trail.*
+**HELIOS governs AI.**
 
-**That is HELIOS.**
-
-<br/>
-
-[⬆ Back to top](#helios)
+IDENTITY → what AI systems exist? · POLICY → what may they do? ·
+EVIDENCE → what did they do? · ASSURANCE → can we prove they stay within policy?
 
 </div>
